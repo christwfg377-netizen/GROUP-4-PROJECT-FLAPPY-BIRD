@@ -1,0 +1,518 @@
+import pygame
+import random
+import sys
+import time
+
+pygame.init()
+
+# =========================
+# SCREEN SETTINGS
+# =========================
+WIDTH = 500
+HEIGHT = 700
+
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("GROUP 4 - Jungle Adventure Bird")
+
+clock = pygame.time.Clock()
+FPS = 60
+
+# =========================
+# FONTS
+# =========================
+title_font = pygame.font.SysFont("comicsansms", 55, bold=True)
+big_font = pygame.font.SysFont("verdana", 35, bold=True)
+score_font = pygame.font.SysFont("arialblack", 28)
+small_font = pygame.font.SysFont("trebuchetms", 24, bold=True)
+
+# =========================
+# COLORS
+# =========================
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+YELLOW = (255, 255, 0)
+ORANGE = (255, 165, 0)
+RED = (255, 60, 60)
+GREEN = (50, 205, 50)
+BLUE = (50, 150, 255)
+PURPLE = (180, 0, 255)
+BROWN = (139, 69, 19)
+
+# =========================
+# GAME VARIABLES
+# =========================
+bird_x = 120
+bird_y = HEIGHT // 2
+
+bird_radius = 20
+bird_velocity = 0
+
+gravity = 0.5
+flap_force = -9
+
+pipe_width = 80
+pipe_gap = 180
+pipe_speed = 4
+
+pipes = []
+
+score = 0
+high_score = 0
+
+game_running = False
+game_over = False
+
+start_time = 0
+current_theme = 0
+
+# =========================
+# THEMES
+# =========================
+themes = [
+    {
+        "name": "Jungle",
+        "sky": (120, 200, 255),
+        "ground": (34, 139, 34),
+        "pipe": (0, 100, 0)
+    },
+    {
+        "name": "Desert",
+        "sky": (255, 200, 100),
+        "ground": (210, 180, 80),
+        "pipe": (160, 82, 45)
+    },
+    {
+        "name": "Snow",
+        "sky": (180, 220, 255),
+        "ground": (230, 230, 230),
+        "pipe": (100, 149, 237)
+    }
+]
+
+# =========================
+# CREATE PIPE
+# =========================
+def create_pipe():
+
+    height = random.randint(150, 450)
+
+    top_pipe = pygame.Rect(WIDTH, 0, pipe_width, height)
+
+    bottom_pipe = pygame.Rect(
+        WIDTH,
+        height + pipe_gap,
+        pipe_width,
+        HEIGHT - height - pipe_gap
+    )
+
+    return top_pipe, bottom_pipe
+
+
+# =========================
+# RESET GAME
+# =========================
+def reset_game():
+
+    global bird_y
+    global bird_velocity
+    global pipes
+    global score
+    global game_running
+    global game_over
+    global start_time
+
+    bird_y = HEIGHT // 2
+    bird_velocity = 0
+
+    pipes = []
+
+    for i in range(3):
+
+        pipe = create_pipe()
+
+        pipe[0].x += i * 250
+        pipe[1].x += i * 250
+
+        pipes.append(pipe)
+
+    score = 0
+
+    game_running = True
+    game_over = False
+
+    start_time = time.time()
+
+
+# =========================
+# DRAW BACKGROUND
+# =========================
+def draw_background():
+
+    theme = themes[current_theme]
+
+    screen.fill(theme["sky"])
+
+    # Ground
+    pygame.draw.rect(
+        screen,
+        theme["ground"],
+        (0, HEIGHT - 100, WIDTH, 100)
+    )
+
+    # Jungle Theme
+    if current_theme == 0:
+
+        for x in range(40, WIDTH, 120):
+
+            pygame.draw.rect(
+                screen,
+                BROWN,
+                (x, HEIGHT - 220, 35, 120)
+            )
+
+            pygame.draw.circle(
+                screen,
+                GREEN,
+                (x + 17, HEIGHT - 240),
+                50
+            )
+
+        # Animals
+        for x in range(80, WIDTH, 160):
+
+            pygame.draw.circle(screen, YELLOW, (x, 620), 18)
+            pygame.draw.circle(screen, BLACK, (x - 5, 615), 3)
+            pygame.draw.circle(screen, BLACK, (x + 5, 615), 3)
+
+    # Desert Theme
+    elif current_theme == 1:
+
+        for x in range(60, WIDTH, 150):
+
+            pygame.draw.rect(
+                screen,
+                GREEN,
+                (x, HEIGHT - 250, 20, 150)
+            )
+
+            pygame.draw.circle(screen, GREEN, (x - 20, HEIGHT - 230), 25)
+            pygame.draw.circle(screen, GREEN, (x + 20, HEIGHT - 230), 25)
+
+        pygame.draw.circle(screen, ORANGE, (420, 90), 50)
+
+    # Snow Theme
+    elif current_theme == 2:
+
+        for i in range(60):
+
+            snow_x = random.randint(0, WIDTH)
+            snow_y = random.randint(0, HEIGHT)
+
+            pygame.draw.circle(screen, WHITE, (snow_x, snow_y), 2)
+
+        pygame.draw.circle(screen, WHITE, (420, 90), 40)
+
+
+# =========================
+# DRAW BIRD
+# =========================
+def draw_bird():
+
+    pygame.draw.circle(
+        screen,
+        YELLOW,
+        (bird_x, int(bird_y)),
+        bird_radius
+    )
+
+    # Eye
+    pygame.draw.circle(
+        screen,
+        BLACK,
+        (bird_x + 6, int(bird_y - 5)),
+        4
+    )
+
+    # Wing
+    pygame.draw.circle(
+        screen,
+        ORANGE,
+        (bird_x - 5, int(bird_y)),
+        10
+    )
+
+    # Beak
+    pygame.draw.polygon(
+        screen,
+        RED,
+        [
+            (bird_x + 18, bird_y),
+            (bird_x + 30, bird_y - 5),
+            (bird_x + 30, bird_y + 5)
+        ]
+    )
+
+
+# =========================
+# DRAW PIPES
+# =========================
+def draw_pipes():
+
+    theme = themes[current_theme]
+
+    for top_pipe, bottom_pipe in pipes:
+
+        pygame.draw.rect(
+            screen,
+            theme["pipe"],
+            top_pipe
+        )
+
+        pygame.draw.rect(
+            screen,
+            theme["pipe"],
+            bottom_pipe
+        )
+
+        pygame.draw.rect(screen, BLACK, top_pipe, 3)
+        pygame.draw.rect(screen, BLACK, bottom_pipe, 3)
+
+
+# =========================
+# CHECK COLLISION
+# =========================
+def check_collision():
+
+    bird_rect = pygame.Rect(
+        bird_x - bird_radius,
+        bird_y - bird_radius,
+        bird_radius * 2,
+        bird_radius * 2
+    )
+
+    for top_pipe, bottom_pipe in pipes:
+
+        if bird_rect.colliderect(top_pipe):
+            return True
+
+        if bird_rect.colliderect(bottom_pipe):
+            return True
+
+    if bird_y <= 0 or bird_y >= HEIGHT - 100:
+        return True
+
+    return False
+
+
+# =========================
+# MAIN LOOP
+# =========================
+running = True
+
+while running:
+
+    clock.tick(FPS)
+
+    # =========================
+    # EVENTS
+    # =========================
+    for event in pygame.event.get():
+
+        if event.type == pygame.QUIT:
+            running = False
+
+        if event.type == pygame.KEYDOWN:
+
+            if event.key == pygame.K_SPACE:
+
+                # START
+                if not game_running and not game_over:
+                    reset_game()
+
+                # FLAP
+                elif game_running:
+                    bird_velocity = flap_force
+
+                # RESTART
+                elif game_over:
+                    reset_game()
+
+    # =========================
+    # CHANGE THEME EVERY 20 SECONDS
+    # =========================
+    if game_running:
+
+        elapsed = int(time.time() - start_time)
+
+        current_theme = (elapsed // 20) % len(themes)
+
+    # =========================
+    # DRAW BACKGROUND
+    # =========================
+    draw_background()
+
+    # =========================
+    # START SCREEN
+    # =========================
+    if not game_running and not game_over:
+
+        title1 = title_font.render("GROUP 4", True, PURPLE)
+        title2 = big_font.render("Jungle Adventure Bird", True, RED)
+
+        press = small_font.render(
+            "PRESS SPACE TO START",
+            True,
+            WHITE
+        )
+
+        info = small_font.render(
+            "Theme changes every 20 seconds!",
+            True,
+            YELLOW
+        )
+
+        screen.blit(
+            title1,
+            (WIDTH // 2 - title1.get_width() // 2, 140)
+        )
+
+        screen.blit(
+            title2,
+            (WIDTH // 2 - title2.get_width() // 2, 230)
+        )
+
+        screen.blit(
+            press,
+            (WIDTH // 2 - press.get_width() // 2, 340)
+        )
+
+        screen.blit(
+            info,
+            (WIDTH // 2 - info.get_width() // 2, 390)
+        )
+
+        draw_bird()
+
+    # =========================
+    # GAME RUNNING
+    # =========================
+    elif game_running:
+
+        # Gravity
+        bird_velocity += gravity
+
+        # Bird move
+        bird_y += bird_velocity
+
+        # Pipe move
+        for pipe in pipes:
+
+            pipe[0].x -= pipe_speed
+            pipe[1].x -= pipe_speed
+
+        # Remove old pipes
+        if pipes[0][0].x < -pipe_width:
+
+            pipes.pop(0)
+
+            new_pipe = create_pipe()
+            pipes.append(new_pipe)
+
+        # Score
+        for pipe in pipes:
+
+            if pipe[0].x == bird_x:
+                score += 1
+
+        # Collision
+        if check_collision():
+
+            game_running = False
+            game_over = True
+
+            if score > high_score:
+                high_score = score
+
+        # Draw
+        draw_pipes()
+        draw_bird()
+
+        # TEXTS
+        score_text = score_font.render(
+            f"Score: {score}",
+            True,
+            WHITE
+        )
+
+        high_text = score_font.render(
+            f"High Score: {high_score}",
+            True,
+            YELLOW
+        )
+
+        theme_text = small_font.render(
+            f"Theme: {themes[current_theme]['name']}",
+            True,
+            BLACK
+        )
+
+        screen.blit(score_text, (20, 20))
+        screen.blit(high_text, (20, 60))
+        screen.blit(theme_text, (20, 100))
+
+    # =========================
+    # GAME OVER
+    # =========================
+    elif game_over:
+
+        draw_pipes()
+        draw_bird()
+
+        over = title_font.render(
+            "GAME OVER",
+            True,
+            RED
+        )
+
+        final_score = big_font.render(
+            f"FINAL SCORE: {score}",
+            True,
+            WHITE
+        )
+
+        high_text = big_font.render(
+            f"HIGH SCORE: {high_score}",
+            True,
+            YELLOW
+        )
+
+        retry = small_font.render(
+            "PRESS SPACE TO RESTART",
+            True,
+            WHITE
+        )
+
+        screen.blit(
+            over,
+            (WIDTH // 2 - over.get_width() // 2, 160)
+        )
+
+        screen.blit(
+            final_score,
+            (WIDTH // 2 - final_score.get_width() // 2, 280)
+        )
+
+        screen.blit(
+            high_text,
+            (WIDTH // 2 - high_text.get_width() // 2, 340)
+        )
+
+        screen.blit(
+            retry,
+            (WIDTH // 2 - retry.get_width() // 2, 430)
+        )
+
+    pygame.display.update()
+
+pygame.quit()
+sys.exit()
