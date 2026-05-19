@@ -1,0 +1,259 @@
+import math
+import random
+import sys
+from pathlib import Path
+
+import pygame
+
+
+pygame.init()
+
+WIDTH, HEIGHT = 500, 700
+GROUND_HEIGHT = 95
+FPS = 60
+
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Flappy Bird Jungle")
+clock = pygame.time.Clock()
+
+WHITE = (255, 255, 255)
+BLACK = (20, 24, 30)
+SKY_TOP = (105, 190, 240)
+SKY_BOTTOM = (168, 226, 255)
+SUN = (255, 225, 115)
+LEAF = (45, 150, 75)
+DARK_LEAF = (22, 105, 58)
+PIPE = (35, 150, 65)
+PIPE_DARK = (18, 95, 45)
+GROUND = (70, 175, 72)
+DIRT = (141, 92, 48)
+YELLOW = (255, 218, 70)
+RED = (230, 70, 70)
+
+title_font = pygame.font.SysFont("impact", 58)
+big_font = pygame.font.SysFont("arial", 34, bold=True)
+font = pygame.font.SysFont("arial", 24, bold=True)
+small_font = pygame.font.SysFont("arial", 18, bold=True)
+
+BIRD_X = 115
+BIRD_W, BIRD_H = 48, 38
+GRAVITY = 0.48
+FLAP_STRENGTH = -8.8
+
+PIPE_WIDTH = 78
+PIPE_GAP = 205
+PIPE_DISTANCE = 285
+
+
+def load_bird_image():
+    image_path = Path(__file__).with_name("frontend.png")
+    try:
+        image = pygame.image.load(str(image_path)).convert_alpha()
+        return pygame.transform.smoothscale(image, (BIRD_W, BIRD_H))
+    except (pygame.error, FileNotFoundError):
+        return None
+
+
+bird_image = load_bird_image()
+
+
+def create_pipe(x):
+    min_top = 95
+    max_top = HEIGHT - GROUND_HEIGHT - PIPE_GAP - 95
+    top_height = random.randint(min_top, max_top)
+    top = pygame.Rect(x, 0, PIPE_WIDTH, top_height)
+    bottom = pygame.Rect(
+        x,
+        top_height + PIPE_GAP,
+        PIPE_WIDTH,
+        HEIGHT - GROUND_HEIGHT - top_height - PIPE_GAP,
+    )
+    return {"top": top, "bottom": bottom, "scored": False}
+
+
+def reset_game():
+    return {
+        "bird_y": HEIGHT // 2,
+        "velocity": 0,
+        "pipes": [create_pipe(WIDTH + i * PIPE_DISTANCE) for i in range(3)],
+        "score": 0,
+        "level": 1,
+        "speed": 3.8,
+        "started": True,
+        "game_over": False,
+    }
+
+
+game = reset_game()
+game["started"] = False
+high_score = 0
+ground_scroll = 0
+
+
+def draw_background(scroll):
+    for y in range(HEIGHT):
+        t = y / HEIGHT
+        color = (
+            int(SKY_TOP[0] * (1 - t) + SKY_BOTTOM[0] * t),
+            int(SKY_TOP[1] * (1 - t) + SKY_BOTTOM[1] * t),
+            int(SKY_TOP[2] * (1 - t) + SKY_BOTTOM[2] * t),
+        )
+        pygame.draw.line(screen, color, (0, y), (WIDTH, y))
+
+    pygame.draw.circle(screen, SUN, (415, 88), 42)
+
+    pygame.draw.polygon(screen, DARK_LEAF, [(0, 505), (115, 325), (240, 505)])
+    pygame.draw.polygon(screen, LEAF, [(190, 505), (348, 295), (520, 505)])
+
+    for x in range(-80, WIDTH + 80, 90):
+        wobble = int(math.sin((x + scroll) * 0.02) * 8)
+        trunk_x = x - int(scroll * 0.35) % 90
+        pygame.draw.rect(screen, DIRT, (trunk_x + wobble, 510, 18, 110))
+        pygame.draw.circle(screen, LEAF, (trunk_x + wobble + 9, 490), 31)
+
+    pygame.draw.rect(screen, GROUND, (0, HEIGHT - GROUND_HEIGHT, WIDTH, GROUND_HEIGHT))
+    pygame.draw.rect(screen, DIRT, (0, HEIGHT - 42, WIDTH, 42))
+
+    for x in range(-40, WIDTH + 40, 40):
+        blade_x = x - int(scroll) % 40
+        pygame.draw.line(
+            screen,
+            DARK_LEAF,
+            (blade_x, HEIGHT - GROUND_HEIGHT + 8),
+            (blade_x + 12, HEIGHT - GROUND_HEIGHT - 12),
+            3,
+        )
+
+
+def draw_bird(y, velocity):
+    rect = pygame.Rect(BIRD_X, int(y), BIRD_W, BIRD_H)
+    angle = max(-30, min(25, -velocity * 3))
+
+    if bird_image:
+        rotated = pygame.transform.rotate(bird_image, angle)
+        screen.blit(rotated, rotated.get_rect(center=rect.center))
+        return rect
+
+    pygame.draw.ellipse(screen, YELLOW, rect)
+    pygame.draw.circle(screen, WHITE, (rect.right - 13, rect.top + 11), 7)
+    pygame.draw.circle(screen, BLACK, (rect.right - 10, rect.top + 11), 3)
+    pygame.draw.polygon(
+        screen,
+        (255, 143, 58),
+        [(rect.right - 3, rect.centery), (rect.right + 12, rect.centery - 6), (rect.right + 12, rect.centery + 6)],
+    )
+    wing_y = rect.centery + int(math.sin(pygame.time.get_ticks() * 0.02) * 4)
+    pygame.draw.ellipse(screen, (245, 190, 45), (rect.left + 8, wing_y - 8, 20, 14))
+    return rect
+
+
+def draw_pipes(pipes):
+    for pipe in pipes:
+        for key in ("top", "bottom"):
+            rect = pipe[key]
+            pygame.draw.rect(screen, PIPE, rect, border_radius=4)
+            pygame.draw.rect(screen, PIPE_DARK, rect, 4, border_radius=4)
+
+            lip_y = rect.bottom - 18 if key == "top" else rect.top
+            lip = pygame.Rect(rect.x - 8, lip_y, PIPE_WIDTH + 16, 18)
+            pygame.draw.rect(screen, PIPE, lip, border_radius=4)
+            pygame.draw.rect(screen, PIPE_DARK, lip, 4, border_radius=4)
+
+
+def draw_hud(score, high_score, level):
+    score_text = font.render(f"Score {score}", True, WHITE)
+    high_text = small_font.render(f"Best {high_score}", True, YELLOW)
+    level_text = small_font.render(f"Level {level}", True, WHITE)
+
+    pygame.draw.rect(screen, (18, 35, 34), (12, 12, 168, 82), border_radius=8)
+    pygame.draw.rect(screen, (120, 230, 145), (12, 12, 168, 82), 2, border_radius=8)
+    screen.blit(score_text, (25, 22))
+    screen.blit(high_text, (26, 53))
+    screen.blit(level_text, (106, 53))
+
+
+def draw_center_text(title, subtitle, color):
+    title_surface = title_font.render(title, True, color)
+    subtitle_surface = font.render(subtitle, True, BLACK)
+    screen.blit(title_surface, title_surface.get_rect(center=(WIDTH // 2, 250)))
+    screen.blit(subtitle_surface, subtitle_surface.get_rect(center=(WIDTH // 2, 330)))
+
+
+def collides_with_world(bird_rect, pipes):
+    if bird_rect.top <= 0 or bird_rect.bottom >= HEIGHT - GROUND_HEIGHT:
+        return True
+
+    hitbox = bird_rect.inflate(-10, -8)
+    for pipe in pipes:
+        if hitbox.colliderect(pipe["top"]) or hitbox.colliderect(pipe["bottom"]):
+            return True
+    return False
+
+
+def update_level(game_state):
+    if game_state["score"] >= 25:
+        game_state["level"] = 3
+        game_state["speed"] = 5.8
+    elif game_state["score"] >= 10:
+        game_state["level"] = 2
+        game_state["speed"] = 4.8
+
+
+running = True
+while running:
+    dt = clock.tick(FPS)
+    ground_scroll = (ground_scroll + game["speed"] * 0.8) % 1000
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.KEYDOWN and event.key in (pygame.K_SPACE, pygame.K_UP):
+            if not game["started"] or game["game_over"]:
+                game = reset_game()
+            else:
+                game["velocity"] = FLAP_STRENGTH
+        elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if not game["started"] or game["game_over"]:
+                game = reset_game()
+            else:
+                game["velocity"] = FLAP_STRENGTH
+
+    draw_background(ground_scroll)
+
+    if game["started"] and not game["game_over"]:
+        game["velocity"] += GRAVITY
+        game["bird_y"] += game["velocity"]
+
+        for pipe in game["pipes"]:
+            pipe["top"].x -= int(game["speed"])
+            pipe["bottom"].x -= int(game["speed"])
+
+            if not pipe["scored"] and pipe["top"].right < BIRD_X:
+                pipe["scored"] = True
+                game["score"] += 1
+
+        if game["pipes"][0]["top"].right < 0:
+            game["pipes"].pop(0)
+            game["pipes"].append(create_pipe(game["pipes"][-1]["top"].x + PIPE_DISTANCE))
+
+        update_level(game)
+
+    draw_pipes(game["pipes"])
+    bird_rect = draw_bird(game["bird_y"], game["velocity"])
+    draw_hud(game["score"], high_score, game["level"])
+
+    if game["started"] and not game["game_over"] and collides_with_world(bird_rect, game["pipes"]):
+        game["game_over"] = True
+        high_score = max(high_score, game["score"])
+
+    if not game["started"]:
+        draw_center_text("FLAPPY JUNGLE", "Press SPACE or click to flap", DARK_LEAF)
+    elif game["game_over"]:
+        draw_center_text("GAME OVER", "Press SPACE or click to restart", RED)
+        final_score = big_font.render(f"Score: {game['score']}", True, BLACK)
+        screen.blit(final_score, final_score.get_rect(center=(WIDTH // 2, 385)))
+
+    pygame.display.flip()
+
+pygame.quit()
+sys.exit()
