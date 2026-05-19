@@ -1,0 +1,467 @@
+import math
+import random
+import sys
+from pathlib import Path
+
+import pygame
+
+
+pygame.init()
+
+# -------------------- Window --------------------
+WIDTH, HEIGHT = 500, 700
+GROUND_HEIGHT = 96
+FPS = 60
+
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Flappy Bird Jungle")
+clock = pygame.time.Clock()
+
+# -------------------- Colors --------------------
+WHITE = (255, 255, 255)
+BLACK = (22, 26, 32)
+SKY_TOP = (99, 190, 240)
+SKY_BOTTOM = (185, 232, 255)
+SUN = (255, 226, 116)
+LEAF = (48, 152, 79)
+DARK_LEAF = (24, 104, 58)
+PIPE = (41, 157, 70)
+PIPE_DARK = (18, 96, 49)
+GROUND = (75, 174, 72)
+DIRT = (139, 91, 47)
+YELLOW = (255, 216, 67)
+ORANGE = (255, 144, 52)
+RED = (225, 68, 74)
+GOLD = (255, 204, 45)
+GOLD_DARK = (197, 126, 20)
+
+# -------------------- Fonts --------------------
+title_font = pygame.font.SysFont("impact", 58)
+big_font = pygame.font.SysFont("arial", 34, bold=True)
+font = pygame.font.SysFont("arial", 24, bold=True)
+small_font = pygame.font.SysFont("arial", 18, bold=True)
+
+# -------------------- Bird --------------------
+BIRD_X = 115
+BIRD_W, BIRD_H = 52, 40
+GRAVITY = 0.48
+FLAP_FORCE = -8.8
+
+# -------------------- Pipes --------------------
+PIPE_WIDTH = 78
+PIPE_GAP = 205
+PIPE_DISTANCE = 285
+
+# -------------------- States --------------------
+MENU = "menu"
+RUNNING = "running"
+GAME_OVER = "game_over"
+
+
+def create_bird_sprite(path):
+    """Create the bird image if it does not already exist."""
+    sprite = pygame.Surface((96, 72), pygame.SRCALPHA)
+
+    pygame.draw.ellipse(sprite, YELLOW, (12, 18, 58, 42))
+    pygame.draw.ellipse(sprite, (255, 238, 116), (20, 23, 38, 24))
+    pygame.draw.ellipse(sprite, (242, 177, 45), (12, 34, 34, 25))
+    pygame.draw.polygon(sprite, ORANGE, [(65, 36), (88, 26), (88, 46)])
+    pygame.draw.polygon(sprite, (226, 96, 45), [(66, 37), (87, 37), (87, 46)])
+    pygame.draw.circle(sprite, WHITE, (57, 29), 9)
+    pygame.draw.circle(sprite, BLACK, (60, 29), 4)
+    pygame.draw.arc(sprite, BLACK, (17, 19, 51, 39), math.radians(190), math.radians(330), 3)
+
+    pygame.image.save(sprite, str(path))
+
+
+def load_bird_image():
+    asset_path = Path(__file__).with_name("flappy_bird.png")
+
+    if not asset_path.exists():
+        create_bird_sprite(asset_path)
+
+    try:
+        image = pygame.image.load(str(asset_path)).convert_alpha()
+        return pygame.transform.smoothscale(image, (BIRD_W, BIRD_H))
+    except (pygame.error, FileNotFoundError):
+        return None
+
+
+def load_frontend_image():
+    image_path = Path(__file__).with_name("frontend.png")
+
+    try:
+        image = pygame.image.load(str(image_path)).convert()
+        return pygame.transform.smoothscale(image, (WIDTH, HEIGHT))
+    except (pygame.error, FileNotFoundError):
+        return None
+
+
+bird_image = load_bird_image()
+frontend_image = load_frontend_image()
+
+
+def create_pipe(x):
+    top_min = 95
+    top_max = HEIGHT - GROUND_HEIGHT - PIPE_GAP - 95
+    top_height = random.randint(top_min, top_max)
+    coin_y = top_height + PIPE_GAP // 2 - 14
+
+    return {
+        "top": pygame.Rect(x, 0, PIPE_WIDTH, top_height),
+        "bottom": pygame.Rect(
+            x,
+            top_height + PIPE_GAP,
+            PIPE_WIDTH,
+            HEIGHT - GROUND_HEIGHT - top_height - PIPE_GAP,
+        ),
+        "coin": pygame.Rect(x + PIPE_WIDTH + 78, coin_y, 28, 28),
+        "coin_collected": False,
+        "scored": False,
+    }
+
+
+def initialize_game():
+    return {
+        "state": RUNNING,
+        "bird_y": HEIGHT // 2,
+        "velocity": 0,
+        "score": 0,
+        "coins": 0,
+        "level": 1,
+        "speed": 3.8,
+        "pipes": [create_pipe(WIDTH + i * PIPE_DISTANCE) for i in range(3)],
+    }
+
+
+game = {
+    "state": MENU,
+    "bird_y": HEIGHT // 2,
+    "velocity": 0,
+    "score": 0,
+    "coins": 0,
+    "level": 1,
+    "speed": 3.8,
+    "pipes": [create_pipe(WIDTH + i * PIPE_DISTANCE) for i in range(3)],
+}
+
+high_score = 0
+ground_scroll = 0
+
+
+def tap_detected(event):
+    return (
+        event.type == pygame.MOUSEBUTTONDOWN
+        and event.button == 1
+        or event.type == pygame.KEYDOWN
+        and event.key in (pygame.K_SPACE, pygame.K_UP)
+    )
+
+
+def go_to_menu():
+    return {
+        "state": MENU,
+        "bird_y": HEIGHT // 2,
+        "velocity": 0,
+        "score": 0,
+        "coins": 0,
+        "level": 1,
+        "speed": 3.8,
+        "pipes": [create_pipe(WIDTH + i * PIPE_DISTANCE) for i in range(3)],
+    }
+
+
+def update_level(game_state):
+    if game_state["score"] >= 25:
+        game_state["level"] = 3
+        game_state["speed"] = 5.8
+    elif game_state["score"] >= 10:
+        game_state["level"] = 2
+        game_state["speed"] = 4.8
+    else:
+        game_state["level"] = 1
+        game_state["speed"] = 3.8
+
+
+def apply_gravity(game_state):
+    game_state["velocity"] += GRAVITY
+
+
+def update_bird_position(game_state):
+    game_state["bird_y"] += game_state["velocity"]
+
+
+def move_pipes_left(game_state):
+    step = int(game_state["speed"])
+    for pipe in game_state["pipes"]:
+        pipe["top"].x -= step
+        pipe["bottom"].x -= step
+        pipe["coin"].x -= step
+
+
+def check_score_trigger(game_state):
+    for pipe in game_state["pipes"]:
+        if not pipe["scored"] and pipe["top"].right < BIRD_X:
+            pipe["scored"] = True
+            game_state["score"] += 1
+
+
+def check_coin_collection(game_state):
+    rect = bird_rect(game_state).inflate(-8, -8)
+
+    for pipe in game_state["pipes"]:
+        if not pipe["coin_collected"] and rect.colliderect(pipe["coin"]):
+            pipe["coin_collected"] = True
+            game_state["coins"] += 1
+            game_state["score"] += 2
+
+
+def remove_and_spawn_pipes(game_state):
+    if game_state["pipes"][0]["top"].right < 0:
+        game_state["pipes"].pop(0)
+        last_x = game_state["pipes"][-1]["top"].x
+        game_state["pipes"].append(create_pipe(last_x + PIPE_DISTANCE))
+
+
+def bird_rect(game_state):
+    return pygame.Rect(BIRD_X, int(game_state["bird_y"]), BIRD_W, BIRD_H)
+
+
+def check_collisions(game_state):
+    rect = bird_rect(game_state).inflate(-10, -8)
+
+    if rect.top <= 0 or rect.bottom >= HEIGHT - GROUND_HEIGHT:
+        return True
+
+    for pipe in game_state["pipes"]:
+        if rect.colliderect(pipe["top"]) or rect.colliderect(pipe["bottom"]):
+            return True
+
+    return False
+
+
+def get_place(level):
+    if level >= 3:
+        return {
+            "name": "Night Ruins",
+            "sky_top": (34, 46, 88),
+            "sky_bottom": (91, 82, 135),
+            "sun": (235, 236, 214),
+            "leaf": (67, 135, 112),
+            "dark_leaf": (34, 82, 78),
+            "ground": (57, 122, 92),
+            "dirt": (72, 65, 86),
+            "mountain_a": (52, 68, 103),
+            "mountain_b": (67, 86, 122),
+        }
+
+    if level >= 2:
+        return {
+            "name": "Sunset Canyon",
+            "sky_top": (244, 151, 91),
+            "sky_bottom": (255, 215, 143),
+            "sun": (255, 238, 128),
+            "leaf": (166, 124, 62),
+            "dark_leaf": (117, 82, 55),
+            "ground": (179, 113, 61),
+            "dirt": (105, 68, 49),
+            "mountain_a": (164, 91, 71),
+            "mountain_b": (195, 112, 73),
+        }
+
+    return {
+        "name": "Jungle Grove",
+        "sky_top": SKY_TOP,
+        "sky_bottom": SKY_BOTTOM,
+        "sun": SUN,
+        "leaf": LEAF,
+        "dark_leaf": DARK_LEAF,
+        "ground": GROUND,
+        "dirt": DIRT,
+        "mountain_a": DARK_LEAF,
+        "mountain_b": LEAF,
+    }
+
+
+def draw_background(scroll, level):
+    place = get_place(level)
+
+    for y in range(HEIGHT):
+        t = y / HEIGHT
+        color = (
+            int(place["sky_top"][0] * (1 - t) + place["sky_bottom"][0] * t),
+            int(place["sky_top"][1] * (1 - t) + place["sky_bottom"][1] * t),
+            int(place["sky_top"][2] * (1 - t) + place["sky_bottom"][2] * t),
+        )
+        pygame.draw.line(screen, color, (0, y), (WIDTH, y))
+
+    pygame.draw.circle(screen, place["sun"], (415, 88), 42)
+    pygame.draw.polygon(screen, place["mountain_a"], [(0, 505), (115, 325), (240, 505)])
+    pygame.draw.polygon(screen, place["mountain_b"], [(190, 505), (348, 295), (520, 505)])
+
+    if level >= 3:
+        for x in (54, 224, 388):
+            tower_x = x - int(scroll * 0.18) % 520
+            pygame.draw.rect(screen, (74, 72, 94), (tower_x, 430, 34, 95))
+            pygame.draw.rect(screen, (48, 50, 72), (tower_x - 7, 418, 48, 15))
+            pygame.draw.rect(screen, (34, 37, 54), (tower_x + 11, 462, 12, 30))
+
+    for x in range(-80, WIDTH + 80, 90):
+        tree_x = x - int(scroll * 0.35) % 90
+        sway = int(math.sin((tree_x + scroll) * 0.02) * 8)
+        pygame.draw.rect(screen, place["dirt"], (tree_x + sway, 510, 18, 110))
+        pygame.draw.circle(screen, place["leaf"], (tree_x + sway + 9, 490), 31)
+
+    pygame.draw.rect(screen, place["ground"], (0, HEIGHT - GROUND_HEIGHT, WIDTH, GROUND_HEIGHT))
+    pygame.draw.rect(screen, place["dirt"], (0, HEIGHT - 42, WIDTH, 42))
+
+    for x in range(-40, WIDTH + 40, 40):
+        blade_x = x - int(scroll) % 40
+        pygame.draw.line(
+            screen,
+            place["dark_leaf"],
+            (blade_x, HEIGHT - GROUND_HEIGHT + 8),
+            (blade_x + 12, HEIGHT - GROUND_HEIGHT - 12),
+            3,
+        )
+
+
+def draw_bird(game_state):
+    rect = bird_rect(game_state)
+    angle = max(-32, min(25, -game_state["velocity"] * 3))
+
+    if bird_image is not None:
+        rotated = pygame.transform.rotate(bird_image, angle)
+        screen.blit(rotated, rotated.get_rect(center=rect.center))
+        return
+
+    pygame.draw.ellipse(screen, YELLOW, rect)
+    pygame.draw.circle(screen, WHITE, (rect.right - 13, rect.top + 11), 7)
+    pygame.draw.circle(screen, BLACK, (rect.right - 10, rect.top + 11), 3)
+    pygame.draw.polygon(
+        screen,
+        ORANGE,
+        [
+            (rect.right - 3, rect.centery),
+            (rect.right + 12, rect.centery - 6),
+            (rect.right + 12, rect.centery + 6),
+        ],
+    )
+
+
+def draw_pipes(pipes):
+    for pipe in pipes:
+        for key in ("top", "bottom"):
+            rect = pipe[key]
+            pygame.draw.rect(screen, PIPE, rect, border_radius=4)
+            pygame.draw.rect(screen, PIPE_DARK, rect, 4, border_radius=4)
+
+            lip_y = rect.bottom - 18 if key == "top" else rect.top
+            lip = pygame.Rect(rect.x - 8, lip_y, PIPE_WIDTH + 16, 18)
+            pygame.draw.rect(screen, PIPE, lip, border_radius=4)
+            pygame.draw.rect(screen, PIPE_DARK, lip, 4, border_radius=4)
+
+
+def draw_coins(pipes):
+    pulse = int(math.sin(pygame.time.get_ticks() * 0.01) * 3)
+
+    for pipe in pipes:
+        if pipe["coin_collected"]:
+            continue
+
+        coin = pipe["coin"].inflate(pulse, pulse)
+        pygame.draw.ellipse(screen, GOLD_DARK, coin)
+        pygame.draw.ellipse(screen, GOLD, coin.inflate(-5, -5))
+        pygame.draw.line(screen, WHITE, (coin.centerx - 5, coin.y + 7), (coin.centerx + 5, coin.y + 7), 2)
+
+
+def draw_hud():
+    place = get_place(game["level"])
+
+    pygame.draw.rect(screen, (18, 35, 34), (12, 12, 220, 112), border_radius=8)
+    pygame.draw.rect(screen, (120, 230, 145), (12, 12, 220, 112), 2, border_radius=8)
+    screen.blit(font.render(f"Score {game['score']}", True, WHITE), (25, 23))
+    screen.blit(small_font.render(f"Best {high_score}", True, YELLOW), (26, 56))
+    screen.blit(small_font.render(f"Level {game['level']}", True, WHITE), (108, 56))
+    screen.blit(small_font.render(f"Coins {game['coins']}", True, GOLD), (26, 82))
+    screen.blit(small_font.render(place["name"], True, WHITE), (108, 82))
+
+
+def draw_center_text(title, subtitle, color, y=250):
+    title_surface = title_font.render(title, True, color)
+    subtitle_surface = font.render(subtitle, True, BLACK)
+    screen.blit(title_surface, title_surface.get_rect(center=(WIDTH // 2, y)))
+    screen.blit(subtitle_surface, subtitle_surface.get_rect(center=(WIDTH // 2, y + 82)))
+
+
+def render_everything():
+    if game["state"] == MENU and frontend_image is not None:
+        screen.blit(frontend_image, (0, 0))
+
+        group_surface = big_font.render("GROUP 4", True, RED)
+        group_shadow = big_font.render("GROUP 4", True, WHITE)
+        start_surface = font.render("Tap, SPACE, or UP to start", True, WHITE)
+        start_shadow = font.render("Tap, SPACE, or UP to start", True, BLACK)
+
+        screen.blit(group_shadow, group_shadow.get_rect(center=(WIDTH // 2 + 2, 92)))
+        screen.blit(group_surface, group_surface.get_rect(center=(WIDTH // 2, 90)))
+        screen.blit(start_shadow, start_shadow.get_rect(center=(WIDTH // 2 + 2, HEIGHT - 58)))
+        screen.blit(start_surface, start_surface.get_rect(center=(WIDTH // 2, HEIGHT - 60)))
+        return
+
+    draw_background(ground_scroll, game["level"])
+    draw_pipes(game["pipes"])
+    draw_coins(game["pipes"])
+    draw_bird(game)
+    draw_hud()
+
+    if game["state"] == MENU:
+        group_surface = big_font.render("GROUP 4", True, RED)
+        screen.blit(group_surface, group_surface.get_rect(center=(WIDTH // 2, 185)))
+        draw_center_text("FLAPPY JUNGLE", "Tap, SPACE, or UP to start", DARK_LEAF)
+    elif game["state"] == GAME_OVER:
+        draw_center_text("GAME OVER", "Tap to restart  |  ESC for menu", RED, 238)
+
+        score_surface = big_font.render(f"Final Score: {game['score']}", True, BLACK)
+        coin_surface = font.render(f"Coins Collected: {game['coins']}", True, GOLD_DARK)
+
+        screen.blit(score_surface, score_surface.get_rect(center=(WIDTH // 2, 395)))
+        screen.blit(coin_surface, coin_surface.get_rect(center=(WIDTH // 2, 432)))
+
+
+running = True
+
+while running:
+    clock.tick(FPS)
+    ground_scroll = (ground_scroll + game["speed"] * 0.8) % 1000
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif game["state"] == MENU and tap_detected(event):
+            game = initialize_game()
+        elif game["state"] == RUNNING and tap_detected(event):
+            game["velocity"] = FLAP_FORCE
+        elif game["state"] == GAME_OVER and tap_detected(event):
+            game = initialize_game()
+        elif game["state"] == GAME_OVER and event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            game = go_to_menu()
+
+    if game["state"] == RUNNING:
+        apply_gravity(game)
+        update_bird_position(game)
+        move_pipes_left(game)
+        check_coin_collection(game)
+        check_score_trigger(game)
+        remove_and_spawn_pipes(game)
+        update_level(game)
+
+        if check_collisions(game):
+            game["state"] = GAME_OVER
+            high_score = max(high_score, game["score"])
+
+    render_everything()
+    pygame.display.flip()
+
+pygame.quit()
+sys.exit()
