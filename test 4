@@ -1,0 +1,715 @@
+import math
+import random
+import sys
+from pathlib import Path
+
+import pygame
+
+
+pygame.init()
+pygame.display.set_icon(pygame.Surface((32, 32), pygame.SRCALPHA))
+
+# -------------------- Window --------------------
+WIDTH, HEIGHT = 500, 700
+GROUND_HEIGHT = 96
+FPS = 60
+
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Flappy Bird Jungle")
+clock = pygame.time.Clock()
+
+# -------------------- Colors --------------------
+WHITE = (255, 255, 255)
+BLACK = (22, 26, 32)
+SKY_TOP = (99, 190, 240)
+SKY_BOTTOM = (185, 232, 255)
+SUN = (255, 226, 116)
+LEAF = (48, 152, 79)
+DARK_LEAF = (24, 104, 58)
+PIPE = (41, 157, 70)
+PIPE_DARK = (18, 96, 49)
+GROUND = (75, 174, 72)
+DIRT = (139, 91, 47)
+YELLOW = (255, 216, 67)
+ORANGE = (255, 144, 52)
+RED = (225, 68, 74)
+GOLD = (255, 204, 45)
+GOLD_DARK = (197, 126, 20)
+HUD_BG = (14, 28, 31, 205)
+
+# -------------------- Fonts --------------------
+title_font = pygame.font.SysFont("impact", 58)
+big_font = pygame.font.SysFont("arial", 34, bold=True)
+font = pygame.font.SysFont("arial", 24, bold=True)
+small_font = pygame.font.SysFont("arial", 18, bold=True)
+
+# -------------------- Bird --------------------
+BIRD_X = 115
+BIRD_W, BIRD_H = 52, 40
+GRAVITY = 0.48
+FLAP_FORCE = -8.8
+
+# -------------------- Pipes --------------------
+PIPE_WIDTH = 78
+PIPE_GAP = 205
+PIPE_DISTANCE = 285
+
+# -------------------- HD Surfaces --------------------
+ASSET_DIR = Path(__file__).with_name("assets_hd")
+gradient_cache = {}
+cloud_layer = pygame.Surface((WIDTH + 220, HEIGHT), pygame.SRCALPHA)
+sparkle_layer = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+pipe_surface_cache = {}
+
+# -------------------- States --------------------
+MENU = "menu"
+RUNNING = "running"
+GAME_OVER = "game_over"
+
+
+def create_bird_sprite(path):
+    """Create a higher-detail bird image if it does not already exist."""
+    sprite = pygame.Surface((144, 108), pygame.SRCALPHA)
+
+    pygame.draw.ellipse(sprite, (0, 0, 0, 55), (18, 34, 91, 54))
+    pygame.draw.ellipse(sprite, (255, 198, 47), (16, 25, 88, 61))
+    pygame.draw.ellipse(sprite, (255, 232, 83), (20, 20, 82, 58))
+    pygame.draw.ellipse(sprite, (255, 247, 143), (34, 29, 52, 32))
+    pygame.draw.ellipse(sprite, (238, 162, 38), (17, 48, 55, 35))
+    pygame.draw.arc(sprite, (184, 98, 39), (28, 33, 68, 50), math.radians(188), math.radians(335), 4)
+
+    pygame.draw.polygon(sprite, (255, 156, 48), [(98, 50), (133, 34), (130, 66)])
+    pygame.draw.polygon(sprite, (226, 91, 43), [(99, 51), (132, 51), (130, 66)])
+    pygame.draw.line(sprite, (255, 221, 104), (104, 47), (125, 39), 2)
+
+    pygame.draw.circle(sprite, WHITE, (88, 37), 13)
+    pygame.draw.circle(sprite, (33, 39, 45), (92, 37), 6)
+    pygame.draw.circle(sprite, WHITE, (94, 34), 2)
+    pygame.draw.arc(sprite, (118, 74, 30), (18, 21, 86, 62), math.radians(190), math.radians(345), 3)
+
+    pygame.image.save(sprite, str(path))
+
+
+def load_bird_image():
+    ASSET_DIR.mkdir(exist_ok=True)
+    asset_path = ASSET_DIR / "bird_hd.png"
+
+    if not asset_path.exists():
+        create_bird_sprite(asset_path)
+
+    try:
+        image = pygame.image.load(str(asset_path)).convert_alpha()
+        return pygame.transform.smoothscale(image, (BIRD_W + 10, BIRD_H + 8))
+    except (pygame.error, FileNotFoundError):
+        return None
+
+
+bird_image = load_bird_image()
+
+
+def blend(color, target, amount):
+    return tuple(int(color[i] * (1 - amount) + target[i] * amount) for i in range(3))
+
+
+def make_vertical_gradient(top, bottom):
+    key = (top, bottom)
+    if key in gradient_cache:
+        return gradient_cache[key]
+
+    surface = pygame.Surface((WIDTH, HEIGHT))
+    for y in range(HEIGHT):
+        t = y / HEIGHT
+        color = blend(top, bottom, t)
+        pygame.draw.line(surface, color, (0, y), (WIDTH, y))
+
+    gradient_cache[key] = surface
+    return surface
+
+
+def draw_asset_cloud(surface, x, y, width, height, alpha=190):
+    pieces = [
+        (0.02, 0.44, 0.36, 0.42),
+        (0.18, 0.24, 0.42, 0.52),
+        (0.44, 0.12, 0.42, 0.62),
+        (0.66, 0.34, 0.32, 0.44),
+    ]
+    for px, py, pw, ph in pieces:
+        rect = pygame.Rect(x + width * px, y + height * py, width * pw, height * ph)
+        pygame.draw.ellipse(surface, (255, 255, 255, alpha), rect)
+    pygame.draw.ellipse(surface, (221, 247, 247, alpha // 2), (x + width * 0.1, y + height * 0.56, width * 0.78, height * 0.3))
+
+
+def create_hd_background_asset(path):
+    surface = pygame.Surface((WIDTH, HEIGHT)).convert()
+
+    for y in range(HEIGHT):
+        t = y / HEIGHT
+        sky = (
+            int(74 * (1 - t) + 177 * t),
+            int(196 * (1 - t) + 235 * t),
+            int(236 * (1 - t) + 255 * t),
+        )
+        pygame.draw.line(surface, sky, (0, y), (WIDTH, y))
+
+    pygame.draw.circle(surface, (255, 238, 132), (410, 84), 58)
+    pygame.draw.circle(surface, (255, 248, 188), (393, 66), 12)
+    draw_asset_cloud(surface, 20, 74, 150, 62, 175)
+    draw_asset_cloud(surface, 224, 122, 190, 72, 145)
+    draw_asset_cloud(surface, 392, 48, 160, 64, 165)
+
+    far = (103, 174, 156)
+    near = (64, 143, 111)
+    snow = (232, 255, 245)
+    pygame.draw.polygon(surface, far, [(-55, 522), (72, 354), (178, 522)])
+    pygame.draw.polygon(surface, far, [(98, 522), (232, 324), (360, 522)])
+    pygame.draw.polygon(surface, far, [(288, 522), (426, 338), (560, 522)])
+    pygame.draw.polygon(surface, snow, [(72, 354), (102, 398), (44, 399)])
+    pygame.draw.polygon(surface, snow, [(232, 324), (265, 380), (202, 384)])
+    pygame.draw.polygon(surface, snow, [(426, 338), (463, 388), (394, 392)])
+
+    pygame.draw.polygon(surface, near, [(-40, 542), (108, 378), (255, 542)])
+    pygame.draw.polygon(surface, (82, 165, 118), [(176, 542), (350, 342), (536, 542)])
+
+    for x in range(0, WIDTH, 28):
+        height = 34 + (x * 17) % 46
+        building = pygame.Rect(x, 548 - height, 18, height)
+        pygame.draw.rect(surface, (128, 205, 199), building, 2)
+        for wy in range(building.y + 8, building.bottom - 4, 11):
+            pygame.draw.line(surface, (174, 230, 224), (building.x + 4, wy), (building.right - 4, wy), 1)
+
+    for x in range(-20, WIDTH + 60, 50):
+        pygame.draw.circle(surface, (77, 188, 103), (x, 574), 36)
+        pygame.draw.circle(surface, (42, 145, 82), (x + 24, 578), 32)
+        pygame.draw.circle(surface, (111, 209, 117), (x + 9, 557), 14)
+
+    pygame.draw.ellipse(surface, (0, 0, 0), (376, 438, 30, 16))
+    pygame.draw.ellipse(surface, (35, 42, 48), (374, 434, 30, 16))
+    pygame.draw.ellipse(surface, (255, 226, 82), (390, 426, 36, 14))
+    pygame.draw.polygon(surface, (255, 132, 38), [(422, 432), (438, 436), (421, 441)])
+    pygame.draw.circle(surface, WHITE, (397, 436), 4)
+    pygame.draw.circle(surface, BLACK, (398, 436), 2)
+
+    pygame.image.save(surface, str(path))
+
+
+def create_ground_asset(path):
+    surface = pygame.Surface((WIDTH, GROUND_HEIGHT), pygame.SRCALPHA)
+    pygame.draw.rect(surface, (87, 196, 85), (0, 0, WIDTH, GROUND_HEIGHT))
+    pygame.draw.rect(surface, (136, 220, 94), (0, 0, WIDTH, 12))
+    pygame.draw.rect(surface, (132, 83, 47), (0, GROUND_HEIGHT - 43, WIDTH, 43))
+    pygame.draw.rect(surface, (101, 62, 38), (0, GROUND_HEIGHT - 36, WIDTH, 6))
+    for x in range(-8, WIDTH + 8, 24):
+        pygame.draw.line(surface, (35, 133, 70), (x, 9), (x + 11, -7), 3)
+        pygame.draw.circle(surface, (105, 207, 88), (x + 16, 24), 4)
+    for x in range(0, WIDTH, 38):
+        pygame.draw.ellipse(surface, (111, 67, 38), (x, GROUND_HEIGHT - 24, 22, 10))
+    pygame.image.save(surface, str(path))
+
+
+def create_coin_asset(path):
+    surface = pygame.Surface((64, 64), pygame.SRCALPHA)
+    pygame.draw.ellipse(surface, (0, 0, 0, 70), (11, 15, 44, 42))
+    pygame.draw.ellipse(surface, GOLD_DARK, (8, 7, 46, 46))
+    pygame.draw.ellipse(surface, GOLD, (13, 10, 36, 37))
+    pygame.draw.ellipse(surface, (255, 245, 144), (22, 15, 16, 19))
+    pygame.draw.arc(surface, WHITE, (17, 13, 25, 21), math.radians(200), math.radians(310), 3)
+    pygame.draw.line(surface, (180, 112, 16), (31, 19), (31, 42), 3)
+    pygame.image.save(surface, str(path))
+
+
+def load_generated_asset(filename, create_func, alpha=True):
+    ASSET_DIR.mkdir(exist_ok=True)
+    path = ASSET_DIR / filename
+    if not path.exists():
+        create_func(path)
+
+    try:
+        image = pygame.image.load(str(path))
+        return image.convert_alpha() if alpha else image.convert()
+    except (pygame.error, FileNotFoundError):
+        return None
+
+
+background_art = load_generated_asset("background_hd.png", create_hd_background_asset, alpha=False)
+ground_art = load_generated_asset("ground_hd.png", create_ground_asset)
+coin_art = load_generated_asset("coin_hd.png", create_coin_asset)
+
+
+def build_cloud_layer():
+    cloud_layer.fill((0, 0, 0, 0))
+    clouds = [
+        (35, 86, 70, 25),
+        (175, 132, 92, 32),
+        (342, 74, 78, 27),
+        (515, 160, 98, 30),
+    ]
+    for x, y, w, h in clouds:
+        for offset, scale in ((0, 0.75), (w * 0.22, 1.0), (w * 0.48, 0.82), (w * 0.68, 0.62)):
+            rect = pygame.Rect(x + offset, y, w * scale, h * scale)
+            pygame.draw.ellipse(cloud_layer, (255, 255, 255, 88), rect)
+        pygame.draw.ellipse(cloud_layer, (255, 255, 255, 42), (x + 8, y + h * 0.4, w, h * 0.55))
+
+
+def build_sparkles():
+    sparkle_layer.fill((0, 0, 0, 0))
+    random.seed(8)
+    for _ in range(36):
+        x = random.randrange(16, WIDTH - 16)
+        y = random.randrange(40, HEIGHT - GROUND_HEIGHT - 40)
+        radius = random.choice((1, 1, 2))
+        pygame.draw.circle(sparkle_layer, (255, 255, 255, 58), (x, y), radius)
+
+
+build_cloud_layer()
+build_sparkles()
+
+
+def draw_butterfly(x, y, color, flap):
+    wing = 5 + int(math.sin(flap) * 2)
+    pygame.draw.ellipse(screen, color, (x - wing, y - 4, wing, 9))
+    pygame.draw.ellipse(screen, color, (x + 1, y - 4, wing, 9))
+    pygame.draw.line(screen, (45, 56, 48), (x, y - 3), (x, y + 5), 2)
+
+
+def draw_monkey(x, y):
+    body = (118, 76, 42)
+    face = (224, 173, 108)
+    pygame.draw.circle(screen, (0, 0, 0, 45), (x + 3, y + 4), 15)
+    pygame.draw.circle(screen, body, (x, y), 14)
+    pygame.draw.circle(screen, body, (x - 12, y - 2), 6)
+    pygame.draw.circle(screen, body, (x + 12, y - 2), 6)
+    pygame.draw.ellipse(screen, face, (x - 8, y - 6, 16, 15))
+    pygame.draw.circle(screen, BLACK, (x - 4, y - 1), 2)
+    pygame.draw.circle(screen, BLACK, (x + 4, y - 1), 2)
+    pygame.draw.arc(screen, BLACK, (x - 5, y + 1, 10, 7), 0, math.pi, 2)
+
+
+def draw_toucan(x, y):
+    pygame.draw.ellipse(screen, (29, 38, 44), (x, y, 26, 15))
+    pygame.draw.ellipse(screen, (250, 230, 86), (x + 10, y - 7, 32, 14))
+    pygame.draw.polygon(screen, (255, 137, 42), [(x + 38, y), (x + 53, y + 3), (x + 38, y + 7)])
+    pygame.draw.circle(screen, WHITE, (x + 19, y + 3), 4)
+    pygame.draw.circle(screen, BLACK, (x + 20, y + 3), 2)
+
+
+def make_pipe_surface(width, height):
+    cache_key = (width, height)
+    if cache_key in pipe_surface_cache:
+        return pipe_surface_cache[cache_key]
+
+    surface = pygame.Surface((width, height), pygame.SRCALPHA)
+    pygame.draw.rect(surface, PIPE_DARK, (0, 0, width, height), border_radius=8)
+    pygame.draw.rect(surface, PIPE, (5, 0, width - 10, height), border_radius=8)
+    pygame.draw.rect(surface, (118, 226, 62), (11, 5, 12, max(0, height - 10)), border_radius=6)
+    pygame.draw.rect(surface, (193, 255, 108), (17, 7, 4, max(0, height - 14)), border_radius=3)
+    pygame.draw.rect(surface, (21, 91, 43), (width - 16, 5, 8, max(0, height - 10)), border_radius=4)
+    for y in range(18, height, 36):
+        pygame.draw.line(surface, (93, 199, 58), (7, y), (width - 10, y), 2)
+    pipe_surface_cache[cache_key] = surface
+    return surface
+
+
+def make_pipe_lip_surface(width, height):
+    cache_key = ("lip", width, height)
+    if cache_key in pipe_surface_cache:
+        return pipe_surface_cache[cache_key]
+
+    surface = pygame.Surface((width, height), pygame.SRCALPHA)
+    pygame.draw.rect(surface, PIPE_DARK, (0, 0, width, height), border_radius=7)
+    pygame.draw.rect(surface, PIPE, (5, 4, width - 10, height - 8), border_radius=5)
+    pygame.draw.line(surface, (192, 255, 104), (10, 7), (width - 12, 7), 3)
+    pygame.draw.line(surface, (18, 92, 48), (9, height - 6), (width - 10, height - 6), 2)
+    pipe_surface_cache[cache_key] = surface
+    return surface
+
+
+def create_pipe(x):
+    top_min = 95
+    top_max = HEIGHT - GROUND_HEIGHT - PIPE_GAP - 95
+    top_height = random.randint(top_min, top_max)
+    coin_y = top_height + PIPE_GAP // 2 - 14
+
+    return {
+        "top": pygame.Rect(x, 0, PIPE_WIDTH, top_height),
+        "bottom": pygame.Rect(
+            x,
+            top_height + PIPE_GAP,
+            PIPE_WIDTH,
+            HEIGHT - GROUND_HEIGHT - top_height - PIPE_GAP,
+        ),
+        "coin": pygame.Rect(x + PIPE_WIDTH + 78, coin_y, 28, 28),
+        "coin_collected": False,
+        "scored": False,
+    }
+
+
+def initialize_game():
+    return {
+        "state": RUNNING,
+        "bird_y": HEIGHT // 2,
+        "velocity": 0,
+        "score": 0,
+        "coins": 0,
+        "level": 1,
+        "speed": 3.8,
+        "pipes": [create_pipe(WIDTH + i * PIPE_DISTANCE) for i in range(3)],
+    }
+
+
+game = {
+    "state": MENU,
+    "bird_y": HEIGHT // 2,
+    "velocity": 0,
+    "score": 0,
+    "coins": 0,
+    "level": 1,
+    "speed": 3.8,
+    "pipes": [create_pipe(WIDTH + i * PIPE_DISTANCE) for i in range(3)],
+}
+
+high_score = 0
+ground_scroll = 0
+
+
+def tap_detected(event):
+    return (
+        event.type == pygame.MOUSEBUTTONDOWN
+        and event.button == 1
+        or event.type == pygame.KEYDOWN
+        and event.key in (pygame.K_SPACE, pygame.K_UP)
+    )
+
+
+def go_to_menu():
+    return {
+        "state": MENU,
+        "bird_y": HEIGHT // 2,
+        "velocity": 0,
+        "score": 0,
+        "coins": 0,
+        "level": 1,
+        "speed": 3.8,
+        "pipes": [create_pipe(WIDTH + i * PIPE_DISTANCE) for i in range(3)],
+    }
+
+
+def update_level(game_state):
+    if game_state["score"] >= 25:
+        game_state["level"] = 3
+        game_state["speed"] = 5.8
+    elif game_state["score"] >= 10:
+        game_state["level"] = 2
+        game_state["speed"] = 4.8
+    else:
+        game_state["level"] = 1
+        game_state["speed"] = 3.8
+
+
+def apply_gravity(game_state):
+    game_state["velocity"] += GRAVITY
+
+
+def update_bird_position(game_state):
+    game_state["bird_y"] += game_state["velocity"]
+
+
+def move_pipes_left(game_state):
+    step = int(game_state["speed"])
+    for pipe in game_state["pipes"]:
+        pipe["top"].x -= step
+        pipe["bottom"].x -= step
+        pipe["coin"].x -= step
+
+
+def check_score_trigger(game_state):
+    for pipe in game_state["pipes"]:
+        if not pipe["scored"] and pipe["top"].right < BIRD_X:
+            pipe["scored"] = True
+            game_state["score"] += 1
+
+
+def check_coin_collection(game_state):
+    rect = bird_rect(game_state).inflate(-8, -8)
+
+    for pipe in game_state["pipes"]:
+        if not pipe["coin_collected"] and rect.colliderect(pipe["coin"]):
+            pipe["coin_collected"] = True
+            game_state["coins"] += 1
+            game_state["score"] += 2
+
+
+def remove_and_spawn_pipes(game_state):
+    if game_state["pipes"][0]["top"].right < 0:
+        game_state["pipes"].pop(0)
+        last_x = game_state["pipes"][-1]["top"].x
+        game_state["pipes"].append(create_pipe(last_x + PIPE_DISTANCE))
+
+
+def bird_rect(game_state):
+    return pygame.Rect(BIRD_X, int(game_state["bird_y"]), BIRD_W, BIRD_H)
+
+
+def check_collisions(game_state):
+    rect = bird_rect(game_state).inflate(-10, -8)
+
+    if rect.top <= 0 or rect.bottom >= HEIGHT - GROUND_HEIGHT:
+        return True
+
+    for pipe in game_state["pipes"]:
+        if rect.colliderect(pipe["top"]) or rect.colliderect(pipe["bottom"]):
+            return True
+
+    return False
+
+
+def get_place(level):
+    if level >= 3:
+        return {
+            "name": "Night Ruins",
+            "sky_top": (34, 46, 88),
+            "sky_bottom": (91, 82, 135),
+            "sun": (235, 236, 214),
+            "leaf": (67, 135, 112),
+            "dark_leaf": (34, 82, 78),
+            "ground": (57, 122, 92),
+            "dirt": (72, 65, 86),
+            "mountain_a": (52, 68, 103),
+            "mountain_b": (67, 86, 122),
+        }
+
+    if level >= 2:
+        return {
+            "name": "Sunset Canyon",
+            "sky_top": (244, 151, 91),
+            "sky_bottom": (255, 215, 143),
+            "sun": (255, 238, 128),
+            "leaf": (166, 124, 62),
+            "dark_leaf": (117, 82, 55),
+            "ground": (179, 113, 61),
+            "dirt": (105, 68, 49),
+            "mountain_a": (164, 91, 71),
+            "mountain_b": (195, 112, 73),
+        }
+
+    return {
+        "name": "Jungle Grove",
+        "sky_top": SKY_TOP,
+        "sky_bottom": SKY_BOTTOM,
+        "sun": SUN,
+        "leaf": LEAF,
+        "dark_leaf": DARK_LEAF,
+        "ground": GROUND,
+        "dirt": DIRT,
+        "mountain_a": DARK_LEAF,
+        "mountain_b": LEAF,
+    }
+
+
+def draw_background(scroll, level):
+    place = get_place(level)
+
+    if background_art is not None:
+        screen.blit(background_art, (0, 0))
+        screen.blit(cloud_layer, (-int(scroll * 0.09) % 220 - 220, 0))
+        butterfly_phase = pygame.time.get_ticks() * 0.012
+        draw_butterfly(72 - int(scroll * 0.42) % 620, 276 + int(math.sin(scroll * 0.03) * 16), (255, 196, 73), butterfly_phase)
+        draw_butterfly(315 - int(scroll * 0.36) % 620, 235 + int(math.cos(scroll * 0.025) * 13), (255, 106, 130), butterfly_phase + 1.7)
+        draw_toucan(392 - int(scroll * 0.28) % 650, 455)
+        draw_monkey(154 - int(scroll * 0.32) % 620, 466)
+        if ground_art is not None:
+            screen.blit(ground_art, (0, HEIGHT - GROUND_HEIGHT))
+        else:
+            pygame.draw.rect(screen, place["ground"], (0, HEIGHT - GROUND_HEIGHT, WIDTH, GROUND_HEIGHT))
+            pygame.draw.rect(screen, place["dirt"], (0, HEIGHT - 42, WIDTH, 42))
+        return
+
+    screen.blit(make_vertical_gradient(place["sky_top"], place["sky_bottom"]), (0, 0))
+    screen.blit(cloud_layer, (-int(scroll * 0.13) % 220 - 220, 0))
+    if level >= 3:
+        screen.blit(sparkle_layer, (0, 0))
+
+    pygame.draw.circle(screen, blend(place["sun"], WHITE, 0.28), (415, 88), 56)
+    pygame.draw.circle(screen, place["sun"], (415, 88), 42)
+    pygame.draw.circle(screen, blend(place["sun"], WHITE, 0.65), (400, 70), 11)
+
+    pygame.draw.polygon(screen, blend(place["mountain_a"], WHITE, 0.1), [(0, 510), (115, 325), (240, 510)])
+    pygame.draw.polygon(screen, place["mountain_a"], [(0, 510), (115, 346), (240, 510)])
+    pygame.draw.polygon(screen, blend(place["mountain_b"], WHITE, 0.12), [(190, 510), (348, 295), (520, 510)])
+    pygame.draw.polygon(screen, place["mountain_b"], [(190, 510), (348, 326), (520, 510)])
+
+    if level >= 3:
+        for x in (54, 224, 388):
+            tower_x = x - int(scroll * 0.18) % 520
+            pygame.draw.rect(screen, (74, 72, 94), (tower_x, 430, 34, 95))
+            pygame.draw.rect(screen, (48, 50, 72), (tower_x - 7, 418, 48, 15))
+            pygame.draw.rect(screen, (34, 37, 54), (tower_x + 11, 462, 12, 30))
+
+    for x in range(-80, WIDTH + 80, 90):
+        tree_x = x - int(scroll * 0.35) % 90
+        sway = int(math.sin((tree_x + scroll) * 0.02) * 8)
+        trunk = pygame.Rect(tree_x + sway, 510, 18, 110)
+        pygame.draw.rect(screen, blend(place["dirt"], BLACK, 0.18), trunk.move(3, 0), border_radius=6)
+        pygame.draw.rect(screen, place["dirt"], trunk, border_radius=6)
+        pygame.draw.circle(screen, blend(place["leaf"], WHITE, 0.1), (tree_x + sway + 9, 490), 34)
+        pygame.draw.circle(screen, place["leaf"], (tree_x + sway + 9, 492), 30)
+        pygame.draw.circle(screen, place["dark_leaf"], (tree_x + sway - 9, 506), 19)
+        pygame.draw.circle(screen, blend(place["leaf"], WHITE, 0.22), (tree_x + sway + 22, 481), 13)
+
+    pygame.draw.rect(screen, place["ground"], (0, HEIGHT - GROUND_HEIGHT, WIDTH, GROUND_HEIGHT))
+    pygame.draw.rect(screen, blend(place["ground"], WHITE, 0.2), (0, HEIGHT - GROUND_HEIGHT, WIDTH, 10))
+    pygame.draw.rect(screen, place["dirt"], (0, HEIGHT - 42, WIDTH, 42))
+
+    for x in range(-40, WIDTH + 40, 40):
+        blade_x = x - int(scroll) % 40
+        pygame.draw.line(
+            screen,
+            place["dark_leaf"],
+            (blade_x, HEIGHT - GROUND_HEIGHT + 8),
+            (blade_x + 12, HEIGHT - GROUND_HEIGHT - 12),
+            3,
+        )
+        pygame.draw.circle(screen, blend(place["ground"], WHITE, 0.14), (blade_x + 22, HEIGHT - 62), 4)
+
+
+def draw_bird(game_state):
+    rect = bird_rect(game_state)
+    angle = max(-32, min(25, -game_state["velocity"] * 3))
+    shadow_rect = pygame.Rect(rect.x - 4, rect.y + 12, rect.w + 12, rect.h + 8)
+    pygame.draw.ellipse(screen, (0, 0, 0, 42), shadow_rect)
+
+    if bird_image is not None:
+        rotated = pygame.transform.rotate(bird_image, angle)
+        screen.blit(rotated, rotated.get_rect(center=rect.center))
+        return
+
+    pygame.draw.ellipse(screen, YELLOW, rect)
+    pygame.draw.circle(screen, WHITE, (rect.right - 13, rect.top + 11), 7)
+    pygame.draw.circle(screen, BLACK, (rect.right - 10, rect.top + 11), 3)
+    pygame.draw.polygon(
+        screen,
+        ORANGE,
+        [
+            (rect.right - 3, rect.centery),
+            (rect.right + 12, rect.centery - 6),
+            (rect.right + 12, rect.centery + 6),
+        ],
+    )
+
+
+def draw_pipes(pipes):
+    for pipe in pipes:
+        for key in ("top", "bottom"):
+            rect = pipe[key]
+            pygame.draw.rect(screen, (0, 0, 0, 48), rect.move(5, 0), border_radius=7)
+            screen.blit(make_pipe_surface(rect.w, rect.h), rect.topleft)
+
+            lip_y = rect.bottom - 18 if key == "top" else rect.top
+            lip = pygame.Rect(rect.x - 8, lip_y, PIPE_WIDTH + 16, 18)
+            pygame.draw.rect(screen, (0, 0, 0, 48), lip.move(4, 3), border_radius=6)
+            screen.blit(make_pipe_lip_surface(lip.w, lip.h), lip.topleft)
+
+
+def draw_coins(pipes):
+    pulse = int(math.sin(pygame.time.get_ticks() * 0.01) * 3)
+    shine = math.sin(pygame.time.get_ticks() * 0.006)
+
+    for pipe in pipes:
+        if pipe["coin_collected"]:
+            continue
+
+        coin = pipe["coin"].inflate(pulse, pulse)
+        if coin_art is not None:
+            frame = pygame.transform.smoothscale(coin_art, coin.size)
+            screen.blit(frame, coin.topleft)
+        else:
+            pygame.draw.ellipse(screen, (0, 0, 0, 55), coin.move(3, 4))
+            pygame.draw.ellipse(screen, GOLD_DARK, coin)
+            pygame.draw.ellipse(screen, GOLD, coin.inflate(-5, -5))
+            pygame.draw.ellipse(screen, blend(GOLD, WHITE, 0.45), coin.inflate(-14, -14))
+            pygame.draw.line(screen, WHITE, (coin.centerx - 6, coin.y + 8), (coin.centerx + 6, coin.y + 8 + int(shine * 2)), 2)
+
+
+def draw_hud():
+    place = get_place(game["level"])
+
+    panel = pygame.Rect(12, 12, 220, 112)
+    hud_surface = pygame.Surface(panel.size, pygame.SRCALPHA)
+    pygame.draw.rect(hud_surface, HUD_BG, hud_surface.get_rect(), border_radius=12)
+    pygame.draw.rect(hud_surface, (255, 255, 255, 32), (8, 7, 204, 34), border_radius=9)
+    screen.blit(hud_surface, panel)
+    pygame.draw.rect(screen, (120, 230, 145), panel, 2, border_radius=12)
+    screen.blit(font.render(f"Score {game['score']}", True, WHITE), (25, 23))
+    screen.blit(small_font.render(f"Best {high_score}", True, YELLOW), (26, 56))
+    screen.blit(small_font.render(f"Level {game['level']}", True, WHITE), (108, 56))
+    screen.blit(small_font.render(f"Coins {game['coins']}", True, GOLD), (26, 82))
+    screen.blit(small_font.render(place["name"], True, WHITE), (108, 82))
+
+
+def draw_center_text(title, subtitle, color, y=250):
+    shadow_surface = title_font.render(title, True, (0, 0, 0))
+    title_surface = title_font.render(title, True, color)
+    subtitle_shadow = font.render(subtitle, True, WHITE)
+    subtitle_surface = font.render(subtitle, True, BLACK)
+    screen.blit(shadow_surface, shadow_surface.get_rect(center=(WIDTH // 2 + 3, y + 4)))
+    screen.blit(title_surface, title_surface.get_rect(center=(WIDTH // 2, y)))
+    screen.blit(subtitle_shadow, subtitle_shadow.get_rect(center=(WIDTH // 2 + 2, y + 84)))
+    screen.blit(subtitle_surface, subtitle_surface.get_rect(center=(WIDTH // 2, y + 82)))
+
+
+def render_everything():
+    draw_background(ground_scroll, game["level"])
+    draw_pipes(game["pipes"])
+    draw_coins(game["pipes"])
+    draw_bird(game)
+    draw_hud()
+
+    if game["state"] == MENU:
+        group_surface = big_font.render("GROUP 4", True, RED)
+        screen.blit(group_surface, group_surface.get_rect(center=(WIDTH // 2, 185)))
+        draw_center_text("FLAPPY JUNGLE", "Tap, SPACE, or UP to start", DARK_LEAF)
+    elif game["state"] == GAME_OVER:
+        draw_center_text("GAME OVER", "Tap to restart  |  ESC for menu", RED, 238)
+
+        score_surface = big_font.render(f"Final Score: {game['score']}", True, BLACK)
+        coin_surface = font.render(f"Coins Collected: {game['coins']}", True, GOLD_DARK)
+
+        screen.blit(score_surface, score_surface.get_rect(center=(WIDTH // 2, 395)))
+        screen.blit(coin_surface, coin_surface.get_rect(center=(WIDTH // 2, 432)))
+
+
+running = True
+
+while running:
+    clock.tick(FPS)
+    ground_scroll = (ground_scroll + game["speed"] * 0.8) % 1000
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif game["state"] == MENU and tap_detected(event):
+            game = initialize_game()
+        elif game["state"] == RUNNING and tap_detected(event):
+            game["velocity"] = FLAP_FORCE
+        elif game["state"] == GAME_OVER and tap_detected(event):
+            game = initialize_game()
+        elif game["state"] == GAME_OVER and event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            game = go_to_menu()
+
+    if game["state"] == RUNNING:
+        apply_gravity(game)
+        update_bird_position(game)
+        move_pipes_left(game)
+        check_coin_collection(game)
+        check_score_trigger(game)
+        remove_and_spawn_pipes(game)
+        update_level(game)
+
+        if check_collisions(game):
+            game["state"] = GAME_OVER
+            high_score = max(high_score, game["score"])
+
+    render_everything()
+    pygame.display.flip()
+
+pygame.quit()
+sys.exit()
