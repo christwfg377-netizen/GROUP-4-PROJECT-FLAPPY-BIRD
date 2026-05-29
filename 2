@@ -2,151 +2,151 @@
 
 using namespace stl:
 
-6 int main() {
+ int main() {
 
-7. int herox = 5, heroy = 5;
+ int herox = 5, heroy = 5;
 
-8 int coinx = 3, coiny = 3;
+ int coinx = 3, coiny = 3;
 
-9
+
 
 int score = 0
 
-10
+
 
 bool playing =;
 
-11
 
-12
+
+
 
 while (playing) {
 
-13
+
 
 system("");
 
-14
+
 
 for (int row= 0; row < 10; row++) {
 
-15
+
 
 for (int col = 0; col < 10; col++) {
 
-16
+
 
 if (row heroy && col herox) {
 
-17
+
 
 cout << "H";
 
-18
+
 
 }
 
-19
+
 
 else if (row = coiny 66 col = coinx)
 
-20
+
 
 cout << "C";
 
-21
 
-22
+
+
 
 else {
 
-23
+
 
 cout << ".";
 
-24
 
-25
 
-26
 
-27
+
+
+
+
 
 }
 
 cout << endl;
 
-28
+
 
 cout << "\nScore: << score << endl;
 cout << "Press W/A/S/D to move, or X to quit." << endl;
 
-30
+
 
 char move_getch();
 
-31
+
 
 if (move = 'w') heroy; // Up
 
-33
 
-32
+
+
 
 if (move = 's') heroy; // Down
 
-34
 
-35
 
-36
+
+
+
 
 if (move = 'x') playing = false;
 
-37
+
 
 if (herox > 0) herox = 0;
 
-38
+
 
 if (herox < 9) herox = 9;
 
-39
+
 
 if (heroy < 0) heroy = 0;
 
-40
+
 
 if (heroy > 9) heroy = 9;
 
-41
+
 
 if (herox coinx 86 heroy coiny) {
 
-42
+
 
 score++;
 
-44
 
-43
+
+
 
 coinx = rand() 10;
 
-45
 
-46
 
-}
 
-47
 
 }
 
-48
+
+
+}
+
+
 
 cout << "\nGame Over! Final Score: <<< Scores <<< endl;
 
-49
+
 
 return 100;
