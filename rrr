@@ -1,0 +1,62 @@
+#include <iostream>
+#include <conio.h>
+
+using namespace std;
+
+int main() {
+    int heroX = 5, heroY = 5;
+    int coinX = 3, coinY = 3;
+    int score = 0;
+    bool playing = true;
+
+    while (playing) {
+        system("cls");
+
+        for (int row = 0; row < 10; row++) {
+            for (int col = 0; col < 10; col++) {
+
+                if (row == heroY && col == heroX) {
+                    cout << "H ";
+                }
+
+                else if (row == coinY && col == coinX) {
+                    cout << "C ";
+                }
+
+                else {
+                    cout << ". ";
+                }
+            }
+
+            cout << endl;
+        }
+
+        cout << "\nScore: " << score << endl;
+        cout << "Press W/A/S/D to move, or X to quit." << endl;
+
+        char move = _getch();
+
+        if (move == 'w') heroY--; // Up
+        if (move == 's') heroY++; // Down
+        if (move == 'a') heroX--; // Left
+        if (move == 'd') heroX++; // Right
+
+        if (move == 'x') playing = false;
+
+        if (heroX < 0) heroX = 0;
+        if (heroX > 9) heroX = 9;
+        if (heroY < 0) heroY = 0;
+        if (heroY > 9) heroY = 9;
+
+        if (heroX == coinX && heroY == coinY) {
+            score++;
+
+            coinX = rand() % 10;
+            coinY = rand() % 10;
+        }
+    }
+
+    cout << "\nGame Over! Final Score: " << score << endl;
+
+    return 0;
+}
