@@ -1,0 +1,154 @@
+#include <iostream>
+#include <conio.h>
+#include <windows.h>
+#include <cstdlib>
+
+using namespace std;
+
+bool game_over;
+const int width = 20;
+const int height = 10;
+int headX, headY;
+int fruitX, fruitY;
+int score;
+int speed;
+int tailX[100], tailY[100];
+int tail_length;
+
+enum eDirection { STOP = 0, LEFT, RIGHT, UP, DOWN };
+eDirection dir;
+
+void SetCursorPosition(int x, int y) {
+    static const HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    cout.flush();
+    COORD coord = { (SHORT)x, (SHORT)y };
+    SetConsoleCursorPosition(hOut, coord);
+}
+
+void HideCursor() {
+    HANDLE consoleHandle = GetStdHandle(STD_OUTPUT_HANDLE);
+    CONSOLE_CURSOR_INFO info;
+    info.dwSize = 100;
+    info.bVisible = FALSE;
+    SetConsoleCursorInfo(consoleHandle, &info);
+}
+
+void Setup() {
+    game_over = false;
+    dir = STOP;
+    headX = width / 2;
+    headY = height / 2;
+    fruitX = rand() % width;
+    fruitY = rand() % height;
+    score = 0;
+    speed = 200;
+    tail_length = 0;
+    HideCursor();
+}
+
+void Draw() {
+    SetCursorPosition(0, 0);
+
+    for (int i = 0; i < width + 2; i++) cout << "#";
+    cout << endl;
+
+    for (int i = 0; i < height; i++) {
+        for (int j = 0; j < width; j++) {
+            if (j == 0) cout << "#";
+
+            if (i == headY && j == headX) cout << "O";
+            else if (i == fruitY && j == fruitX) cout << "X";
+            else {
+                bool print_tail = false;
+                for (int k = 0; k < tail_length; k++) {
+                    if (tailX[k] == j && tailY[k] == i) {
+                        cout << "o";
+                        print_tail = true;
+                    }
+                }
+                if (!print_tail) cout << " ";
+            }
+
+            if (j == width - 1) cout << "#";
+        }
+        cout << endl;
+    }
+
+    for (int i = 0; i < width + 2; i++) cout << "#";
+    cout << endl;
+    cout << "Score: " << score << "\n";
+}
+
+void Input() {
+    if (_kbhit()) {
+        switch (_getch()) {
+            case 'a': dir = LEFT; break;
+            case 'd': dir = RIGHT; break;
+            case 'w': dir = UP; break;
+            case 's': dir = DOWN; break;
+            case 'x': game_over = true; break;
+        }
+    }
+}
+
+void Logic() {
+    int prevX = tailX[0];
+    int prevY = tailY[0];
+    int prev2X, prev2Y;
+    tailX[0] = headX;
+    tailY[0] = headY;
+
+    for (int i = 1; i < tail_length; i++) {
+        prev2X = tailX[i];
+        prev2Y = tailY[i];
+        tailX[i] = prevX;
+        tailY[i] = prevY;
+        prevX = prev2X;
+        prevY = prev2Y;
+    }
+
+    switch (dir) {
+        case LEFT: headX--; break;
+        case RIGHT: headX++; break;
+        case UP: headY--; break;
+        case DOWN: headY++; break;
+        default: break;
+    }
+
+    if (headX < 0 || headX >= width || headY < 0 || headY >= height) {
+        game_over = true;
+    }
+
+    for (int i = 0; i < tail_length; i++) {
+        if (tailX[i] == headX && tailY[i] == headY) {
+            game_over = true;
+        }
+    }
+
+    if (headX == fruitX && headY == fruitY) {
+        score++;
+        fruitX = (fruitX * 7 + 3) % width;
+        fruitY = (fruitY * 3 + 2) % height;
+        tail_length++;
+        if (speed > 50) speed -= 10;
+    }
+}
+
+int main() {
+    Setup();
+    while (!game_over) {
+        Draw();
+        Input();
+        Logic();
+        Sleep(speed);
+    }
+
+    system("cls");
+    cout << "\n----------------------------------" << endl;
+    cout << "GAME OVER! The snake has crashed." << endl;
+    cout << "Final Analytical Score: " << score << endl;
+    cout << "----------------------------------" << endl;
+    cout << "\n[SYSTEM DETECTED CRASH] Press any key to safely close the terminal..." << endl;
+    _getch();
+    return 0;
+}
