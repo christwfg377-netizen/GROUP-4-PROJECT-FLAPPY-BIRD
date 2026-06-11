@@ -1,0 +1,320 @@
+import math
+import re
+import tkinter as tk
+from collections import Counter
+from tkinter import filedialog, messagebox, ttk
+
+
+WORD_RE = re.compile(r"[a-zA-Z0-9']+")
+
+
+def tokenize(text):
+    return WORD_RE.findall(text.lower())
+
+
+def make_ngrams(words, size):
+    if len(words) < size:
+        return []
+    return [" ".join(words[index:index + size]) for index in range(len(words) - size + 1)]
+
+
+def cosine_similarity(words_a, words_b):
+    counts_a = Counter(words_a)
+    counts_b = Counter(words_b)
+    all_words = set(counts_a) | set(counts_b)
+
+    dot_product = sum(counts_a[word] * counts_b[word] for word in all_words)
+    length_a = math.sqrt(sum(value * value for value in counts_a.values()))
+    length_b = math.sqrt(sum(value * value for value in counts_b.values()))
+
+    if length_a == 0 or length_b == 0:
+        return 0.0
+    return dot_product / (length_a * length_b)
+
+
+def jaccard_similarity(items_a, items_b):
+    set_a = set(items_a)
+    set_b = set(items_b)
+
+    if not set_a and not set_b:
+        return 0.0
+    return len(set_a & set_b) / len(set_a | set_b)
+
+
+def find_shared_phrases(words_a, words_b, phrase_size, limit=12):
+    phrases_a = Counter(make_ngrams(words_a, phrase_size))
+    phrases_b = Counter(make_ngrams(words_b, phrase_size))
+    shared = phrases_a.keys() & phrases_b.keys()
+
+    ranked = sorted(
+        shared,
+        key=lambda phrase: (min(phrases_a[phrase], phrases_b[phrase]), len(phrase)),
+        reverse=True,
+    )
+    return ranked[:limit]
+
+
+def plagiarism_risk(score):
+    if score >= 0.75:
+        return "High risk"
+    if score >= 0.45:
+        return "Medium risk"
+    if score >= 0.25:
+        return "Low risk"
+    return "Very low risk"
+
+
+def compare_documents(text_a, text_b, phrase_size):
+    words_a = tokenize(text_a)
+    words_b = tokenize(text_b)
+    ngrams_a = make_ngrams(words_a, phrase_size)
+    ngrams_b = make_ngrams(words_b, phrase_size)
+
+    word_score = cosine_similarity(words_a, words_b)
+    phrase_score = jaccard_similarity(ngrams_a, ngrams_b)
+    overall_score = (word_score * 0.55) + (phrase_score * 0.45)
+
+    return {
+        "words_a": len(words_a),
+        "words_b": len(words_b),
+        "word_similarity": word_score,
+        "phrase_similarity": phrase_score,
+        "overall_similarity": overall_score,
+        "risk": plagiarism_risk(overall_score),
+        "shared_phrases": find_shared_phrases(words_a, words_b, phrase_size),
+    }
+
+
+class SimilarityApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Document Plagiarism and Similarity Checker")
+        self.geometry("1120x720")
+        self.minsize(900, 620)
+        self.configure(bg="#edf5f8")
+
+        self.phrase_size = tk.IntVar(value=5)
+        self.overall_var = tk.StringVar(value="0%")
+        self.word_var = tk.StringVar(value="0%")
+        self.phrase_var = tk.StringVar(value="0%")
+        self.words_a_var = tk.StringVar(value="0")
+        self.words_b_var = tk.StringVar(value="0")
+        self.risk_var = tk.StringVar(value="No check yet")
+
+        self.build_ui()
+
+    def build_ui(self):
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("TFrame", background="#edf5f8")
+        style.configure("Panel.TFrame", background="#ffffff", relief="solid", borderwidth=1)
+        style.configure("Title.TLabel", background="#edf5f8", foreground="#172026", font=("Arial", 24, "bold"))
+        style.configure("Body.TLabel", background="#edf5f8", foreground="#65737f", font=("Arial", 11))
+        style.configure("PanelTitle.TLabel", background="#ffffff", foreground="#172026", font=("Arial", 13, "bold"))
+        style.configure("Metric.TLabel", background="#f4f7f9", foreground="#172026", font=("Arial", 18, "bold"))
+        style.configure("MetricName.TLabel", background="#f4f7f9", foreground="#65737f", font=("Arial", 9, "bold"))
+        style.configure("Primary.TButton", font=("Arial", 10, "bold"))
+
+        root = ttk.Frame(self, padding=20)
+        root.pack(fill="both", expand=True)
+
+        header = ttk.Frame(root)
+        header.pack(fill="x", pady=(0, 18))
+
+        ttk.Label(header, text="Document Similarity Checker", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(
+            header,
+            text="Paste or load two text documents, then compare word overlap, phrase matches, and overall similarity.",
+            style="Body.TLabel",
+        ).pack(anchor="w", pady=(6, 0))
+
+        body = ttk.Frame(root)
+        body.pack(fill="both", expand=True)
+        body.columnconfigure(0, weight=3)
+        body.columnconfigure(1, weight=2)
+        body.rowconfigure(0, weight=1)
+
+        input_panel = ttk.Frame(body, style="Panel.TFrame", padding=14)
+        input_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
+        input_panel.columnconfigure(0, weight=1)
+        input_panel.columnconfigure(1, weight=1)
+        input_panel.rowconfigure(1, weight=1)
+
+        ttk.Label(input_panel, text="Document A", style="PanelTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(input_panel, text="Document B", style="PanelTitle.TLabel").grid(row=0, column=1, sticky="w")
+
+        self.doc_a = tk.Text(input_panel, wrap="word", height=18, font=("Consolas", 10), padx=10, pady=10)
+        self.doc_b = tk.Text(input_panel, wrap="word", height=18, font=("Consolas", 10), padx=10, pady=10)
+        self.doc_a.grid(row=1, column=0, sticky="nsew", padx=(0, 8), pady=(8, 12))
+        self.doc_b.grid(row=1, column=1, sticky="nsew", padx=(8, 0), pady=(8, 12))
+
+        controls = ttk.Frame(input_panel, style="Panel.TFrame")
+        controls.grid(row=2, column=0, columnspan=2, sticky="ew")
+
+        ttk.Button(controls, text="Check Similarity", style="Primary.TButton", command=self.check_similarity).pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Button(controls, text="Load Document A", command=lambda: self.load_file(self.doc_a)).pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Button(controls, text="Load Document B", command=lambda: self.load_file(self.doc_b)).pack(
+            side="left", padx=(0, 8)
+        )
+        ttk.Button(controls, text="Sample", command=self.load_sample).pack(side="left", padx=(0, 8))
+        ttk.Button(controls, text="Clear", command=self.clear_all).pack(side="left", padx=(0, 14))
+
+        ttk.Label(controls, text="Phrase size", background="#ffffff").pack(side="left", padx=(0, 6))
+        ttk.Spinbox(controls, from_=2, to=12, width=5, textvariable=self.phrase_size).pack(side="left")
+
+        result_panel = ttk.Frame(body, style="Panel.TFrame", padding=14)
+        result_panel.grid(row=0, column=1, sticky="nsew")
+        result_panel.columnconfigure(0, weight=1)
+
+        ttk.Label(result_panel, text="Results", style="PanelTitle.TLabel").pack(anchor="w")
+
+        score_box = tk.Frame(result_panel, bg="#176b87", height=130)
+        score_box.pack(fill="x", pady=(12, 14))
+        score_box.pack_propagate(False)
+
+        tk.Label(score_box, textvariable=self.overall_var, bg="#176b87", fg="white", font=("Arial", 34, "bold")).pack(
+            pady=(22, 0)
+        )
+        tk.Label(score_box, textvariable=self.risk_var, bg="#176b87", fg="white", font=("Arial", 11, "bold")).pack()
+
+        metrics = ttk.Frame(result_panel, style="Panel.TFrame")
+        metrics.pack(fill="x", pady=(0, 14))
+        metrics.columnconfigure((0, 1), weight=1)
+
+        self.metric(metrics, "Word similarity", self.word_var, 0, 0)
+        self.metric(metrics, "Phrase similarity", self.phrase_var, 0, 1)
+        self.metric(metrics, "Words in A", self.words_a_var, 1, 0)
+        self.metric(metrics, "Words in B", self.words_b_var, 1, 1)
+
+        ttk.Label(result_panel, text="Matched Phrases", style="PanelTitle.TLabel").pack(anchor="w", pady=(6, 8))
+
+        phrase_frame = ttk.Frame(result_panel, style="Panel.TFrame")
+        phrase_frame.pack(fill="both", expand=True)
+
+        self.phrases = tk.Text(phrase_frame, wrap="word", height=12, font=("Arial", 10), padx=10, pady=10)
+        self.phrases.pack(side="left", fill="both", expand=True)
+        self.phrases.insert("1.0", "Your matching phrases will appear here after a check.")
+        self.phrases.configure(state="disabled")
+
+        scrollbar = ttk.Scrollbar(phrase_frame, orient="vertical", command=self.phrases.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.phrases.configure(yscrollcommand=scrollbar.set)
+
+    def metric(self, parent, name, value_var, row, column):
+        box = tk.Frame(parent, bg="#f4f7f9", highlightbackground="#d9e1e7", highlightthickness=1)
+        box.grid(row=row, column=column, sticky="ew", padx=5, pady=5)
+        tk.Label(box, textvariable=value_var, bg="#f4f7f9", fg="#172026", font=("Arial", 18, "bold")).pack(
+            anchor="w", padx=10, pady=(8, 0)
+        )
+        tk.Label(box, text=name, bg="#f4f7f9", fg="#65737f", font=("Arial", 9, "bold")).pack(
+            anchor="w", padx=10, pady=(0, 8)
+        )
+
+    def load_file(self, text_widget):
+        file_path = filedialog.askopenfilename(
+            title="Open document",
+            filetypes=[
+                ("Text files", "*.txt *.md *.csv *.py *.html *.css *.js"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as document:
+                content = document.read()
+        except UnicodeDecodeError:
+            with open(file_path, "r", encoding="latin-1") as document:
+                content = document.read()
+        except OSError as error:
+            messagebox.showerror("Could not open file", str(error))
+            return
+
+        text_widget.delete("1.0", "end")
+        text_widget.insert("1.0", content)
+
+    def check_similarity(self):
+        text_a = self.doc_a.get("1.0", "end").strip()
+        text_b = self.doc_b.get("1.0", "end").strip()
+
+        if not text_a or not text_b:
+            messagebox.showwarning("Missing text", "Please add text to both documents.")
+            return
+
+        try:
+            phrase_size = int(self.phrase_size.get())
+        except tk.TclError:
+            messagebox.showwarning("Invalid phrase size", "Phrase size must be a number from 2 to 12.")
+            return
+
+        if phrase_size < 2 or phrase_size > 12:
+            messagebox.showwarning("Invalid phrase size", "Phrase size must be between 2 and 12.")
+            return
+
+        result = compare_documents(text_a, text_b, phrase_size)
+        self.show_result(result)
+
+    def show_result(self, result):
+        self.overall_var.set(self.format_percent(result["overall_similarity"]))
+        self.word_var.set(self.format_percent(result["word_similarity"]))
+        self.phrase_var.set(self.format_percent(result["phrase_similarity"]))
+        self.words_a_var.set(str(result["words_a"]))
+        self.words_b_var.set(str(result["words_b"]))
+        self.risk_var.set(result["risk"])
+
+        self.phrases.configure(state="normal")
+        self.phrases.delete("1.0", "end")
+
+        if result["shared_phrases"]:
+            for number, phrase in enumerate(result["shared_phrases"], start=1):
+                self.phrases.insert("end", f"{number}. {phrase}\n\n")
+        else:
+            self.phrases.insert("1.0", "No matching phrase blocks found.")
+
+        self.phrases.configure(state="disabled")
+
+    def load_sample(self):
+        self.doc_a.delete("1.0", "end")
+        self.doc_b.delete("1.0", "end")
+        self.doc_a.insert(
+            "1.0",
+            "Artificial intelligence is changing the way students research and write documents. "
+            "A similarity checker compares words and phrases to find copied or closely matching text.",
+        )
+        self.doc_b.insert(
+            "1.0",
+            "Artificial intelligence is changing how students research and write papers. "
+            "A document similarity checker compares words and phrases to detect copied or closely matching text.",
+        )
+
+    def clear_all(self):
+        self.doc_a.delete("1.0", "end")
+        self.doc_b.delete("1.0", "end")
+        self.overall_var.set("0%")
+        self.word_var.set("0%")
+        self.phrase_var.set("0%")
+        self.words_a_var.set("0")
+        self.words_b_var.set("0")
+        self.risk_var.set("No check yet")
+        self.phrases.configure(state="normal")
+        self.phrases.delete("1.0", "end")
+        self.phrases.insert("1.0", "Your matching phrases will appear here after a check.")
+        self.phrases.configure(state="disabled")
+
+    @staticmethod
+    def format_percent(value):
+        return f"{round(value * 100)}%"
+
+
+def main():
+    app = SimilarityApp()
+    app.mainloop()
+
+
+if __name__ == "__main__":
+    main()
