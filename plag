@@ -1,0 +1,611 @@
+import json
+import math
+import re
+from collections import Counter
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+HOST = "127.0.0.1"
+PORT = 8000
+WORD_RE = re.compile(r"[a-zA-Z0-9']+")
+
+
+HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Document Similarity Checker</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #172026;
+      --muted: #65737f;
+      --line: #d9e1e7;
+      --panel: #ffffff;
+      --soft: #f4f7f9;
+      --brand: #176b87;
+      --brand-dark: #0f4f64;
+      --accent: #d95f35;
+      --good: #1f8a55;
+      --warn: #b7791f;
+      --bad: #c53030;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #edf5f8 0%, #f8fafb 42%, #ffffff 100%);
+    }
+
+    .app {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 28px 0 42px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: end;
+      padding: 12px 0 24px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(30px, 5vw, 54px);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      max-width: 620px;
+      margin: 12px 0 0;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    .badge {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--brand-dark);
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+      gap: 24px;
+      margin-top: 26px;
+    }
+
+    .workspace,
+    .results {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 12px 30px rgba(23, 32, 38, 0.08);
+    }
+
+    .workspace {
+      padding: 20px;
+    }
+
+    .document-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 700;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 330px;
+      resize: vertical;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font: 15px/1.5 Consolas, "Courier New", monospace;
+      color: var(--ink);
+      background: #fbfdfe;
+    }
+
+    textarea:focus,
+    input:focus {
+      outline: 3px solid rgba(23, 107, 135, 0.18);
+      border-color: var(--brand);
+    }
+
+    .file-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin: 16px 0;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      border: 1px dashed var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--soft);
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 14px;
+      padding-top: 4px;
+    }
+
+    .control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    input[type="number"] {
+      width: 76px;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 12px 18px;
+      background: var(--brand);
+      color: #fff;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--brand-dark);
+    }
+
+    .secondary {
+      background: #e7eef2;
+      color: var(--ink);
+    }
+
+    .secondary:hover {
+      background: #d9e5eb;
+    }
+
+    .results {
+      padding: 20px;
+      align-self: start;
+      position: sticky;
+      top: 16px;
+    }
+
+    h2 {
+      margin: 0 0 16px;
+      font-size: 23px;
+    }
+
+    .score {
+      display: grid;
+      place-items: center;
+      min-height: 170px;
+      margin-bottom: 18px;
+      border-radius: 8px;
+      background: conic-gradient(var(--brand) var(--angle), #e7eef2 0);
+    }
+
+    .score-inner {
+      display: grid;
+      place-items: center;
+      width: 128px;
+      height: 128px;
+      border-radius: 50%;
+      background: #fff;
+      border: 1px solid var(--line);
+    }
+
+    .score-value {
+      font-size: 34px;
+      font-weight: 900;
+    }
+
+    .risk {
+      margin-top: 4px;
+      color: var(--muted);
+      font-weight: 800;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--soft);
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 20px;
+      margin-bottom: 4px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .phrases {
+      display: grid;
+      gap: 8px;
+      max-height: 310px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .phrase {
+      border-left: 4px solid var(--accent);
+      background: #fff7f3;
+      padding: 10px;
+      border-radius: 6px;
+      line-height: 1.4;
+      font-size: 14px;
+    }
+
+    .empty {
+      color: var(--muted);
+      line-height: 1.5;
+      padding: 18px;
+      background: var(--soft);
+      border-radius: 8px;
+    }
+
+    @media (max-width: 850px) {
+      header,
+      main,
+      .document-grid,
+      .file-row {
+        grid-template-columns: 1fr;
+      }
+
+      header {
+        display: grid;
+        align-items: start;
+      }
+
+      .results {
+        position: static;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>Document Similarity Checker</h1>
+        <p class="subtitle">Paste or upload two text documents, then compare word overlap, phrase matches, and overall similarity.</p>
+      </div>
+      <div class="badge">Local Python Website</div>
+    </header>
+
+    <main>
+      <section class="workspace" aria-label="Document input">
+        <div class="document-grid">
+          <div>
+            <label for="docA">Document A</label>
+            <textarea id="docA" placeholder="Paste the first document here..."></textarea>
+          </div>
+          <div>
+            <label for="docB">Document B</label>
+            <textarea id="docB" placeholder="Paste the second document here..."></textarea>
+          </div>
+        </div>
+
+        <div class="file-row">
+          <input id="fileA" type="file" accept=".txt,.md,.csv,.py,.html,.css,.js">
+          <input id="fileB" type="file" accept=".txt,.md,.csv,.py,.html,.css,.js">
+        </div>
+
+        <div class="controls">
+          <button id="checkButton" type="button">Check Similarity</button>
+          <button id="sampleButton" class="secondary" type="button">Load Sample</button>
+          <button id="clearButton" class="secondary" type="button">Clear</button>
+          <label class="control" for="phraseSize">Phrase size
+            <input id="phraseSize" type="number" min="2" max="12" value="5">
+          </label>
+        </div>
+      </section>
+
+      <aside class="results" aria-label="Similarity results">
+        <h2>Results</h2>
+        <div class="score" id="scoreRing" style="--angle: 0deg">
+          <div class="score-inner">
+            <div>
+              <div class="score-value" id="overallScore">0%</div>
+              <div class="risk" id="riskLabel">No check yet</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric">
+            <strong id="wordScore">0%</strong>
+            <span>Word similarity</span>
+          </div>
+          <div class="metric">
+            <strong id="phraseScore">0%</strong>
+            <span>Phrase similarity</span>
+          </div>
+          <div class="metric">
+            <strong id="wordsA">0</strong>
+            <span>Words in A</span>
+          </div>
+          <div class="metric">
+            <strong id="wordsB">0</strong>
+            <span>Words in B</span>
+          </div>
+        </div>
+
+        <h2>Matched Phrases</h2>
+        <div class="phrases" id="phrases">
+          <div class="empty">Your matching phrases will appear here after a check.</div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script>
+    const docA = document.querySelector("#docA");
+    const docB = document.querySelector("#docB");
+    const fileA = document.querySelector("#fileA");
+    const fileB = document.querySelector("#fileB");
+    const phraseSize = document.querySelector("#phraseSize");
+    const phrases = document.querySelector("#phrases");
+
+    async function readFileIntoTextarea(fileInput, textarea) {
+      const file = fileInput.files[0];
+      if (!file) return;
+      textarea.value = await file.text();
+    }
+
+    fileA.addEventListener("change", () => readFileIntoTextarea(fileA, docA));
+    fileB.addEventListener("change", () => readFileIntoTextarea(fileB, docB));
+
+    function percent(value) {
+      return `${Math.round(value * 100)}%`;
+    }
+
+    function setResults(data) {
+      document.querySelector("#overallScore").textContent = percent(data.overall_similarity);
+      document.querySelector("#wordScore").textContent = percent(data.word_similarity);
+      document.querySelector("#phraseScore").textContent = percent(data.phrase_similarity);
+      document.querySelector("#wordsA").textContent = data.words_a;
+      document.querySelector("#wordsB").textContent = data.words_b;
+      document.querySelector("#riskLabel").textContent = data.risk;
+      document.querySelector("#scoreRing").style.setProperty("--angle", `${data.overall_similarity * 360}deg`);
+
+      if (data.shared_phrases.length === 0) {
+        phrases.innerHTML = `<div class="empty">No matching phrase blocks found.</div>`;
+        return;
+      }
+
+      phrases.innerHTML = data.shared_phrases
+        .map((phrase) => `<div class="phrase">${escapeHtml(phrase)}</div>`)
+        .join("");
+    }
+
+    function escapeHtml(text) {
+      return text.replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      }[char]));
+    }
+
+    document.querySelector("#checkButton").addEventListener("click", async () => {
+      const response = await fetch("/api/check", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          document_a: docA.value,
+          document_b: docB.value,
+          phrase_size: Number(phraseSize.value)
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        alert(data.error || "Something went wrong.");
+        return;
+      }
+      setResults(data);
+    });
+
+    document.querySelector("#sampleButton").addEventListener("click", () => {
+      docA.value = "Artificial intelligence is changing the way students research and write documents. A similarity checker compares words and phrases to find copied or closely matching text.";
+      docB.value = "Artificial intelligence is changing how students research and write papers. A document similarity checker compares words and phrases to detect copied or closely matching text.";
+    });
+
+    document.querySelector("#clearButton").addEventListener("click", () => {
+      docA.value = "";
+      docB.value = "";
+      fileA.value = "";
+      fileB.value = "";
+      setResults({
+        overall_similarity: 0,
+        word_similarity: 0,
+        phrase_similarity: 0,
+        words_a: 0,
+        words_b: 0,
+        risk: "No check yet",
+        shared_phrases: []
+      });
+    });
+  </script>
+</body>
+</html>
+"""
+
+
+def tokenize(text):
+    return WORD_RE.findall(text.lower())
+
+
+def make_ngrams(words, size):
+    if len(words) < size:
+        return []
+    return [" ".join(words[index:index + size]) for index in range(len(words) - size + 1)]
+
+
+def cosine_similarity(words_a, words_b):
+    counts_a = Counter(words_a)
+    counts_b = Counter(words_b)
+    all_words = set(counts_a) | set(counts_b)
+    dot_product = sum(counts_a[word] * counts_b[word] for word in all_words)
+    length_a = math.sqrt(sum(value * value for value in counts_a.values()))
+    length_b = math.sqrt(sum(value * value for value in counts_b.values()))
+
+    if length_a == 0 or length_b == 0:
+        return 0.0
+    return dot_product / (length_a * length_b)
+
+
+def jaccard_similarity(items_a, items_b):
+    set_a = set(items_a)
+    set_b = set(items_b)
+
+    if not set_a and not set_b:
+        return 0.0
+    return len(set_a & set_b) / len(set_a | set_b)
+
+
+def find_shared_phrases(words_a, words_b, phrase_size, limit=12):
+    phrases_a = Counter(make_ngrams(words_a, phrase_size))
+    phrases_b = Counter(make_ngrams(words_b, phrase_size))
+    shared = phrases_a.keys() & phrases_b.keys()
+    ranked = sorted(
+        shared,
+        key=lambda phrase: (min(phrases_a[phrase], phrases_b[phrase]), len(phrase)),
+        reverse=True,
+    )
+    return ranked[:limit]
+
+
+def plagiarism_risk(score):
+    if score >= 0.75:
+        return "High risk"
+    if score >= 0.45:
+        return "Medium risk"
+    if score >= 0.25:
+        return "Low risk"
+    return "Very low risk"
+
+
+def compare_documents(text_a, text_b, phrase_size):
+    words_a = tokenize(text_a)
+    words_b = tokenize(text_b)
+    ngrams_a = make_ngrams(words_a, phrase_size)
+    ngrams_b = make_ngrams(words_b, phrase_size)
+
+    word_score = cosine_similarity(words_a, words_b)
+    phrase_score = jaccard_similarity(ngrams_a, ngrams_b)
+    overall_score = (word_score * 0.55) + (phrase_score * 0.45)
+
+    return {
+        "words_a": len(words_a),
+        "words_b": len(words_b),
+        "word_similarity": word_score,
+        "phrase_similarity": phrase_score,
+        "overall_similarity": overall_score,
+        "risk": plagiarism_risk(overall_score),
+        "shared_phrases": find_shared_phrases(words_a, words_b, phrase_size),
+    }
+
+
+class SimilarityHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path not in ("/", "/index.html"):
+            self.send_error(404, "Page not found")
+            return
+
+        body = HTML.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        if self.path != "/api/check":
+            self.send_error(404, "Page not found")
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            text_a = payload.get("document_a", "")
+            text_b = payload.get("document_b", "")
+            phrase_size = int(payload.get("phrase_size", 5))
+
+            if not text_a.strip() or not text_b.strip():
+                self.send_json({"error": "Please add text to both documents."}, 400)
+                return
+            if phrase_size < 2 or phrase_size > 12:
+                self.send_json({"error": "Phrase size must be between 2 and 12."}, 400)
+                return
+
+            self.send_json(compare_documents(text_a, text_b, phrase_size))
+        except (ValueError, json.JSONDecodeError):
+            self.send_json({"error": "Invalid request data."}, 400)
+
+    def send_json(self, data, status=200):
+        body = json.dumps(data).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        return
+
+
+def main():
+    server = ThreadingHTTPServer((HOST, PORT), SimilarityHandler)
+    print(f"Document Similarity Checker is running at http://{HOST}:{PORT}")
+    print("Press Ctrl+C to stop the website.")
+    server.serve_forever()
+
+
+if __name__ == "__main__":
+    main()
